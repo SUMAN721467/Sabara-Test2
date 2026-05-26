@@ -1,0 +1,16 @@
+{
+  "coupons": [
+    {
+      "code": "FIRSTORDER",
+      "discount": 20
+    },
+    {
+      "code": "SABARA15",
+      "discount": 15
+    },
+    {
+      "code": "ASLAM",
+      "discount": 75
+    }
+  ]
+}
