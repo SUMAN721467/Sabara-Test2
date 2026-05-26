@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, useRef, type ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "./auth";
 
 export type CartLine = { id: string; qty: number };
 
@@ -22,6 +24,34 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const { user } = useAuth();
+  const userRef = useRef<string | null>(null);
+
+  // Helper: Sync cart to DB
+  const syncCartToDb = async (cartLines: CartLine[], providerName?: string) => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+
+      const payload: any = { cart: cartLines };
+      if (providerName) {
+        payload.loginMethod = providerName;
+      }
+
+      await fetch("/api/users/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error("[CartProvider sync error]", e);
+    }
+  };
 
   // 1. Hydrate cart lines from localStorage
   useEffect(() => {
@@ -59,6 +89,62 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
     loadProducts();
   }, []);
+
+  // 4. Handle initial sync / merge on login
+  useEffect(() => {
+    async function syncOnLogin() {
+      if (user && user.id !== userRef.current) {
+        userRef.current = user.id;
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData?.session?.access_token;
+          if (!token) return;
+
+          const res = await fetch("/api/users/sync", {
+            headers: { "Authorization": `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success) {
+              const dbCart: CartLine[] = json.cart || [];
+              const provider = sessionData?.session?.user?.app_metadata?.provider || null;
+
+              setLines((currentLines) => {
+                const mergedMap = new Map<string, number>();
+                currentLines.forEach((l) => mergedMap.set(l.id, l.qty));
+                dbCart.forEach((dbLine) => {
+                  const product = dbProducts.find((p) => p.id === dbLine.id);
+                  const maxStock = product?.stock !== undefined && product?.stock !== null ? Number(product.stock) : 10;
+                  const currentQty = mergedMap.get(dbLine.id) || 0;
+                  const newQty = Math.min(maxStock, currentQty + dbLine.qty);
+                  mergedMap.set(dbLine.id, newQty);
+                });
+
+                const merged = Array.from(mergedMap.entries()).map(([id, qty]) => ({ id, qty }));
+                syncCartToDb(merged, provider);
+                return merged;
+              });
+            }
+          }
+        } catch (e) {
+          console.error("Cart sync on login error:", e);
+        }
+      } else if (!user) {
+        userRef.current = null;
+      }
+    }
+
+    if (hydrated && dbProducts.length > 0) {
+      syncOnLogin();
+    }
+  }, [user, hydrated, dbProducts]);
+
+  // 5. Watch lines change to sync to DB for logged in users
+  useEffect(() => {
+    if (hydrated && user && dbProducts.length > 0) {
+      syncCartToDb(lines);
+    }
+  }, [lines, hydrated, user, dbProducts]);
 
   const value = useMemo<CartCtx>(() => {
     const detailed = lines

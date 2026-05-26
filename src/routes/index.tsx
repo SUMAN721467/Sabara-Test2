@@ -25,6 +25,23 @@ const getHeroSettingsServer = createServerFn({ method: "GET" })
       const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       const supabase = createClient(supabaseUrl!, supabaseKey!);
 
+      // Discover schema columns
+      try {
+        const { data: profileSample } = await supabase.from("user_profiles").select("*").limit(1);
+        const { data: orderSample } = await supabase.from("orders").select("*").limit(1);
+        const fs = await import("fs");
+        fs.writeFileSync("user_profiles_columns.json", JSON.stringify({
+          keys: profileSample && profileSample[0] ? Object.keys(profileSample[0]) : [],
+          sample: profileSample && profileSample[0] ? profileSample[0] : null
+        }, null, 2));
+        fs.writeFileSync("orders_columns.json", JSON.stringify({
+          keys: orderSample && orderSample[0] ? Object.keys(orderSample[0]) : [],
+          sample: orderSample && orderSample[0] ? orderSample[0] : null
+        }, null, 2));
+      } catch (err) {
+        console.error("Schema discovery error:", err);
+      }
+
       const { data } = await supabase
         .from("site_settings")
         .select("value")

@@ -24,6 +24,7 @@ import { Route as ApiTestDbRouteImport } from './routes/api/test-db'
 import { Route as ApiSiteSettingsRouteImport } from './routes/api/site-settings'
 import { Route as ApiProductsRouteImport } from './routes/api/products'
 import { Route as ApiCheckoutRouteImport } from './routes/api/checkout'
+import { Route as ApiUsersSyncRouteImport } from './routes/api/users/sync'
 import { Route as ApiUsersProfileRouteImport } from './routes/api/users/profile'
 import { Route as ApiUsersOrdersRouteImport } from './routes/api/users/orders'
 import { Route as ApiAdminSiteSettingsRouteImport } from './routes/api/admin/site-settings'
@@ -106,6 +107,11 @@ const ApiCheckoutRoute = ApiCheckoutRouteImport.update({
   path: '/api/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiUsersSyncRoute = ApiUsersSyncRouteImport.update({
+  id: '/api/users/sync',
+  path: '/api/users/sync',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiUsersProfileRoute = ApiUsersProfileRouteImport.update({
   id: '/api/users/profile',
   path: '/api/users/profile',
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/api/admin/site-settings': typeof ApiAdminSiteSettingsRoute
   '/api/users/orders': typeof ApiUsersOrdersRoute
   '/api/users/profile': typeof ApiUsersProfileRoute
+  '/api/users/sync': typeof ApiUsersSyncRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/api/admin/site-settings': typeof ApiAdminSiteSettingsRoute
   '/api/users/orders': typeof ApiUsersOrdersRoute
   '/api/users/profile': typeof ApiUsersProfileRoute
+  '/api/users/sync': typeof ApiUsersSyncRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -206,6 +214,7 @@ export interface FileRoutesById {
   '/api/admin/site-settings': typeof ApiAdminSiteSettingsRoute
   '/api/users/orders': typeof ApiUsersOrdersRoute
   '/api/users/profile': typeof ApiUsersProfileRoute
+  '/api/users/sync': typeof ApiUsersSyncRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -231,6 +240,7 @@ export interface FileRouteTypes {
     | '/api/admin/site-settings'
     | '/api/users/orders'
     | '/api/users/profile'
+    | '/api/users/sync'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -254,6 +264,7 @@ export interface FileRouteTypes {
     | '/api/admin/site-settings'
     | '/api/users/orders'
     | '/api/users/profile'
+    | '/api/users/sync'
   id:
     | '__root__'
     | '/'
@@ -277,6 +288,7 @@ export interface FileRouteTypes {
     | '/api/admin/site-settings'
     | '/api/users/orders'
     | '/api/users/profile'
+    | '/api/users/sync'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -301,6 +313,7 @@ export interface RootRouteChildren {
   ApiAdminSiteSettingsRoute: typeof ApiAdminSiteSettingsRoute
   ApiUsersOrdersRoute: typeof ApiUsersOrdersRoute
   ApiUsersProfileRoute: typeof ApiUsersProfileRoute
+  ApiUsersSyncRoute: typeof ApiUsersSyncRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -410,6 +423,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/users/sync': {
+      id: '/api/users/sync'
+      path: '/api/users/sync'
+      fullPath: '/api/users/sync'
+      preLoaderRoute: typeof ApiUsersSyncRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/users/profile': {
       id: '/api/users/profile'
       path: '/api/users/profile'
@@ -477,6 +497,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAdminSiteSettingsRoute: ApiAdminSiteSettingsRoute,
   ApiUsersOrdersRoute: ApiUsersOrdersRoute,
   ApiUsersProfileRoute: ApiUsersProfileRoute,
+  ApiUsersSyncRoute: ApiUsersSyncRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

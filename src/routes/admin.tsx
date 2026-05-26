@@ -17,6 +17,7 @@ import { formatPrice } from "@/lib/cart";
 import {
   ShieldX, Plus, X, Upload, ImagePlus, Loader2, ArrowLeft,
   DollarSign, ShoppingBag, Users, Layers, Search, MapPin, ClipboardList,
+  ShoppingCart, Heart, Calendar, Activity, Info, LogIn, Mail, Phone, User
 } from "lucide-react";
 
 export const Route = createFileRoute("/admin")({ component: AdminPage });
@@ -194,7 +195,7 @@ function AdminPage() {
           <OrdersAdmin initialOrders={orders} onRefresh={fetchDashboardData} />
         </TabsContent>
         <TabsContent value="customers">
-          <CustomersAdmin initialCustomers={customers} />
+          <CustomersAdmin initialCustomers={customers} orders={orders} products={products} />
         </TabsContent>
         <TabsContent value="coupons">
           <CouponsAdmin />
@@ -1000,8 +1001,17 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
    CUSTOMERS ADMIN — customer directory + lifetime spending + tags
    ══════════════════════════════════════════════════════════════════════════ */
 
-function CustomersAdmin({ initialCustomers }: { initialCustomers: any[] }) {
+function CustomersAdmin({
+  initialCustomers,
+  orders = [],
+  products = []
+}: {
+  initialCustomers: any[];
+  orders: any[];
+  products: any[];
+}) {
   const [search, setSearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
 
   const filtered = initialCustomers.filter((c) =>
     (c.fullName || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -1022,13 +1032,413 @@ function CustomersAdmin({ initialCustomers }: { initialCustomers: any[] }) {
       .toUpperCase();
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "Pending": return "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400";
+      case "Shipped": return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+      case "Delivered": return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+      case "Cancelled": return "bg-destructive/10 text-destructive";
+      default: return "bg-secondary text-secondary-foreground";
+    }
+  };
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return "—";
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  /* ── Customer Detailed View ────────────────────────────────────────────── */
+  if (selectedCustomer) {
+    const c = selectedCustomer;
+
+    // 1. Find all orders placed by this customer (matching email)
+    const customerOrders = orders.filter(
+      (o) => (o.customerEmail || "").toLowerCase().trim() === (c.email || "").toLowerCase().trim()
+    );
+
+    // 2. Compile purchased products from orders
+    const purchasedMap = new Map<string, any>();
+    customerOrders.forEach((o) => {
+      (o.items || []).forEach((item: any) => {
+        const existing = purchasedMap.get(item.productId);
+        if (existing) {
+          existing.qty += item.qty;
+          existing.totalSpent += Number(item.price) * item.qty;
+          if (new Date(o.date) > new Date(existing.lastOrdered)) {
+            existing.lastOrdered = o.date;
+          }
+        } else {
+          purchasedMap.set(item.productId, {
+            id: item.productId,
+            name: item.productName,
+            image: item.productImage,
+            price: Number(item.price),
+            qty: item.qty,
+            totalSpent: Number(item.price) * item.qty,
+            lastOrdered: o.date,
+          });
+        }
+      });
+    });
+    const purchasedProducts = Array.from(purchasedMap.values()).sort(
+      (a, b) => b.qty - a.qty
+    );
+
+    // 3. Compile cart items (for registered users)
+    const cartItems = (c.cart || [])
+      .map((line: any) => {
+        const prod = products.find((p) => p.id === line.id);
+        return {
+          product: prod || {
+            id: line.id,
+            name: "Unknown Product",
+            image: "",
+            price: 0,
+            category: "Unknown",
+          },
+          qty: line.qty,
+        };
+      })
+      .filter(Boolean);
+
+    // 4. Compile wishlist items (for registered users)
+    const wishlistItems = (c.wishlist || [])
+      .map((id: string) => {
+        return products.find((p) => p.id === id);
+      })
+      .filter(Boolean);
+
+    // 5. Calculate Average Order Value (AOV)
+    const aov = c.totalOrders > 0 ? c.totalSpent / c.totalOrders : 0;
+
+    // Login Method Styling
+    const getLoginMethodUI = (method: string) => {
+      const formatted = (method || "").toLowerCase();
+      if (formatted === "google") {
+        return {
+          label: "Google Account",
+          badge: "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/25",
+          icon: <LogIn className="h-4 w-4 text-red-500 mr-1.5" />
+        };
+      } else if (formatted === "guest") {
+        return {
+          label: "Guest Checkout",
+          badge: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/25",
+          icon: <Users className="h-4 w-4 text-slate-500 mr-1.5" />
+        };
+      } else {
+        return {
+          label: "Email / Password",
+          badge: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/25",
+          icon: <Mail className="h-4 w-4 text-indigo-500 mr-1.5" />
+        };
+      }
+    };
+
+    const loginUI = getLoginMethodUI(c.loginMethod);
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedCustomer(null)}
+            className="hover:bg-secondary cursor-pointer"
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" /> Back to Customers
+          </Button>
+          <div className="text-xs text-muted-foreground font-mono">
+            ID: {c.id}
+          </div>
+        </div>
+
+        {/* Header Summary Banner */}
+        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-card to-secondary/20 p-6 md:p-8 shadow-sm">
+          <div className="absolute right-0 top-0 -mr-6 -mt-6 h-36 w-36 rounded-full bg-primary/5 blur-2xl pointer-events-none" />
+          
+          <div className="flex flex-col gap-6 md:flex-row md:items-center">
+            {/* Avatar */}
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-primary/10 font-serif text-3xl font-bold text-primary shadow-inner border border-primary/20">
+              {getInitials(c.fullName)}
+            </div>
+
+            {/* Main Info */}
+            <div className="space-y-1.5 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-3xl font-serif tracking-tight text-foreground">{c.fullName}</h2>
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${c.isRegistered ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                  {c.isRegistered ? "Registered" : "Guest"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${loginUI.badge}`}>
+                  {loginUI.icon} {loginUI.label}
+                </span>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Mail className="h-4 w-4" /> {c.email}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Phone className="h-4 w-4" /> {c.phone}
+                </span>
+                {c.age && c.age !== "—" && (
+                  <span className="flex items-center gap-1">
+                    <User className="h-4 w-4" /> {c.age} years old
+                  </span>
+                )}
+                {c.city && c.city !== "—" && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-4 w-4" /> {c.city}, {c.state}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Key Metrics Cards */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border bg-card p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lifetime Spent</div>
+            <div className="mt-2 text-2xl font-semibold font-serif text-emerald-600 dark:text-emerald-400">{formatPrice(c.totalSpent)}</div>
+            <p className="text-[10px] text-muted-foreground mt-1">Total revenue including tax</p>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Orders</div>
+            <div className="mt-2 text-2xl font-semibold font-serif text-indigo-600 dark:text-indigo-400">{c.totalOrders} order{c.totalOrders !== 1 ? "s" : ""}</div>
+            <p className="text-[10px] text-muted-foreground mt-1">Successful or pending orders</p>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Avg. Order Value (AOV)</div>
+            <div className="mt-2 text-2xl font-semibold font-serif text-amber-600 dark:text-amber-400">{formatPrice(aov)}</div>
+            <p className="text-[10px] text-muted-foreground mt-1">LTV divided by total orders</p>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Delivery Location</div>
+            <div className="mt-1 text-sm font-medium leading-relaxed truncate">
+              {c.street !== "—" ? (
+                <>
+                  <span className="block font-semibold truncate">{c.street}</span>
+                  <span className="block text-xs text-muted-foreground truncate">{c.city}, {c.state} {c.zipCode}</span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">No address stored</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Main Details Grid */}
+        <div className="grid gap-6 lg:grid-cols-3">
+          
+          {/* Purchased Products (Left column - takes 2/3 space on large screens) */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <div className="flex items-center gap-2 border-b pb-4 mb-4">
+                <ShoppingBag className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-medium">Products Purchased ({purchasedProducts.length})</h3>
+              </div>
+
+              {purchasedProducts.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground text-sm">
+                  This customer has not purchased any products yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product</TableHead>
+                        <TableHead className="text-center">Quantity</TableHead>
+                        <TableHead>Unit Price</TableHead>
+                        <TableHead className="text-right">Total Spent</TableHead>
+                        <TableHead className="text-right">Last Ordered</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {purchasedProducts.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              {p.image ? (
+                                <img src={p.image} alt={p.name} className="h-10 w-9 object-cover rounded bg-secondary" />
+                              ) : (
+                                <div className="h-10 w-9 rounded bg-secondary flex items-center justify-center text-muted-foreground">
+                                  <Layers className="h-4 w-4" />
+                                </div>
+                              )}
+                              <span className="font-medium text-sm line-clamp-1">{p.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center font-semibold text-sm">{p.qty}</TableCell>
+                          <TableCell className="text-sm">{formatPrice(p.price)}</TableCell>
+                          <TableCell className="text-right font-medium text-sm">{formatPrice(p.totalSpent)}</TableCell>
+                          <TableCell className="text-right text-xs text-muted-foreground">{formatDate(p.lastOrdered)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+
+            {/* Orders Log */}
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <div className="flex items-center gap-2 border-b pb-4 mb-4">
+                <ClipboardList className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-medium">Orders Log ({customerOrders.length})</h3>
+              </div>
+
+              {customerOrders.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  No orders found.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order #</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {customerOrders.map((o) => (
+                        <TableRow key={o.id}>
+                          <TableCell className="font-mono font-medium text-sm">{o.orderNumber}</TableCell>
+                          <TableCell className="text-sm">{formatDate(o.date)}</TableCell>
+                          <TableCell>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${getStatusColor(o.status)}`}>
+                              {o.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-sm">{formatPrice(o.total)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Cart & Wishlist (Right Column - takes 1/3 space) */}
+          <div className="space-y-6">
+            
+            {/* Cart Section */}
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between border-b pb-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-medium">Shopping Cart</h3>
+                </div>
+                {c.isRegistered && (
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                    {cartItems.reduce((acc: number, item: any) => acc + item.qty, 0)} items
+                  </span>
+                )}
+              </div>
+
+              {!c.isRegistered ? (
+                <div className="rounded-lg bg-secondary/30 p-4 border border-dashed text-center">
+                  <Info className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-xs text-muted-foreground font-medium">Persisted cart is only available for registered customers.</p>
+                </div>
+              ) : cartItems.length === 0 ? (
+                <p className="text-center py-6 text-sm text-muted-foreground">Shopping cart is empty.</p>
+              ) : (
+                <ul className="divide-y max-h-60 overflow-y-auto pr-1 space-y-3">
+                  {cartItems.map((item: any, idx: number) => (
+                    <li key={idx} className="flex items-center gap-3 pt-3 first:pt-0">
+                      {item.product.image ? (
+                        <img src={item.product.image} alt={item.product.name} className="h-10 w-9 object-cover rounded bg-secondary shrink-0" />
+                      ) : (
+                        <div className="h-10 w-9 rounded bg-secondary flex items-center justify-center shrink-0">
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{item.product.name}</p>
+                        <p className="text-xs text-muted-foreground">{item.qty} units × {formatPrice(item.product.price)}</p>
+                      </div>
+                      <div className="text-sm font-semibold font-mono whitespace-nowrap">
+                        {formatPrice(item.product.price * item.qty)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Wishlist Section */}
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between border-b pb-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <Heart className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-medium">Wishlist</h3>
+                </div>
+                {c.isRegistered && (
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                    {wishlistItems.length} items
+                  </span>
+                )}
+              </div>
+
+              {!c.isRegistered ? (
+                <div className="rounded-lg bg-secondary/30 p-4 border border-dashed text-center">
+                  <Info className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-xs text-muted-foreground font-medium">Persisted wishlist is only available for registered customers.</p>
+                </div>
+              ) : wishlistItems.length === 0 ? (
+                <p className="text-center py-6 text-sm text-muted-foreground">Wishlist is empty.</p>
+              ) : (
+                <ul className="divide-y max-h-60 overflow-y-auto pr-1">
+                  {wishlistItems.map((prod: any, idx: number) => (
+                    <li key={idx} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                      {prod.image ? (
+                        <img src={prod.image} alt={prod.name} className="h-10 w-9 object-cover rounded bg-secondary shrink-0" />
+                      ) : (
+                        <div className="h-10 w-9 rounded bg-secondary flex items-center justify-center shrink-0">
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{prod.name}</p>
+                        <p className="text-xs text-muted-foreground">{prod.category}</p>
+                      </div>
+                      <div className="text-sm font-semibold font-mono text-primary">
+                        {formatPrice(prod.price)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Customer List View ────────────────────────────────────────────────── */
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
         <div>
           <h2 className="text-xl font-medium">Customer Directory</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Registered members and guest accounts who completed checkout.
+            Registered members and guest accounts who completed checkout. Click any customer to view details.
           </p>
         </div>
         
@@ -1053,21 +1463,26 @@ function CustomersAdmin({ initialCustomers }: { initialCustomers: any[] }) {
               <TableHead>Type</TableHead>
               <TableHead className="text-center">Total Orders</TableHead>
               <TableHead className="text-right">Total Spent</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                   No customers found.
                 </TableCell>
               </TableRow>
             ) : (
               filtered.map((c) => (
-                <TableRow key={c.id}>
+                <TableRow
+                  key={c.id}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => setSelectedCustomer(c)}
+                >
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary font-serif text-sm font-semibold text-secondary-foreground">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 font-serif text-sm font-semibold text-primary">
                         {getInitials(c.fullName)}
                       </div>
                       <div>
@@ -1090,8 +1505,18 @@ function CustomersAdmin({ initialCustomers }: { initialCustomers: any[] }) {
                       {c.isRegistered ? "Registered" : "Guest"}
                     </span>
                   </TableCell>
-                  <TableCell className="text-center">{c.totalOrders}</TableCell>
+                  <TableCell className="text-center font-medium">{c.totalOrders}</TableCell>
                   <TableCell className="text-right font-medium font-mono">{formatPrice(c.totalSpent)}</TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedCustomer(c)}
+                      className="hover:underline font-medium text-xs text-primary"
+                    >
+                      View Details
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))
             )}

@@ -1,5 +1,5 @@
 {
-  "columns": [
+  "keys": [
     "id",
     "order_number",
     "customer_name",
@@ -14,7 +14,7 @@
     "user_id",
     "created_at"
   ],
-  "row": {
+  "sample": {
     "id": "9fe67f17-cd49-47bb-9282-b411901a7f36",
     "order_number": "LW-2026-0001",
     "customer_name": "SUman",

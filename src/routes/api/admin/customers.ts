@@ -156,7 +156,10 @@ export const Route = createFileRoute("/api/admin/customers")({
               zipCode: profile.zip_code || userOrders[0]?.shipping_zip_code || "—",
               totalOrders: userOrders.length,
               totalSpent,
-              isRegistered: true
+              isRegistered: true,
+              cart: profile.cart || [],
+              wishlist: profile.wishlist || [],
+              loginMethod: profile.login_method || "email"
             });
           });
 
@@ -186,7 +189,10 @@ export const Route = createFileRoute("/api/admin/customers")({
               zipCode: firstOrder.shipping_zip_code || "—",
               totalOrders: guestOrders.length,
               totalSpent,
-              isRegistered: hasRegisteredOrder
+              isRegistered: hasRegisteredOrder,
+              cart: [],
+              wishlist: [],
+              loginMethod: "guest"
             });
           });
 

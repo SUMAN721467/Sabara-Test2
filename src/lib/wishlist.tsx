@@ -1,5 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import type { Product } from "@/data/products";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "./auth";
 
 type WishlistCtx = {
   wishlist: string[];
@@ -21,6 +23,34 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [dbProducts, setDbProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const { user } = useAuth();
+  const userRef = useRef<string | null>(null);
+
+  // Helper: Sync wishlist to DB
+  const syncWishlistToDb = async (wishlistItems: string[], providerName?: string) => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+
+      const payload: any = { wishlist: wishlistItems };
+      if (providerName) {
+        payload.loginMethod = providerName;
+      }
+
+      await fetch("/api/users/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error("[WishlistProvider sync error]", e);
+    }
+  };
 
   // 1. Hydrate wishlist from localStorage
   useEffect(() => {
@@ -58,6 +88,54 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     }
     loadProducts();
   }, []);
+
+  // 4. Handle initial sync / merge on login
+  useEffect(() => {
+    async function syncOnLogin() {
+      if (user && user.id !== userRef.current) {
+        userRef.current = user.id;
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData?.session?.access_token;
+          if (!token) return;
+
+          const res = await fetch("/api/users/sync", {
+            headers: { "Authorization": `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success) {
+              const dbWishlist: string[] = json.wishlist || [];
+              const provider = sessionData?.session?.user?.app_metadata?.provider || null;
+
+              setWishlist((currentWishlist) => {
+                // Merge sets
+                const mergedSet = new Set([...currentWishlist, ...dbWishlist]);
+                const merged = Array.from(mergedSet);
+                syncWishlistToDb(merged, provider);
+                return merged;
+              });
+            }
+          }
+        } catch (e) {
+          console.error("Wishlist sync on login error:", e);
+        }
+      } else if (!user) {
+        userRef.current = null;
+      }
+    }
+
+    if (hydrated && dbProducts.length > 0) {
+      syncOnLogin();
+    }
+  }, [user, hydrated, dbProducts]);
+
+  // 5. Watch wishlist change to sync to DB for logged in users
+  useEffect(() => {
+    if (hydrated && user && dbProducts.length > 0) {
+      syncWishlistToDb(wishlist);
+    }
+  }, [wishlist, hydrated, user, dbProducts]);
 
   const value = useMemo<WishlistCtx>(() => {
     const detailed = wishlist
