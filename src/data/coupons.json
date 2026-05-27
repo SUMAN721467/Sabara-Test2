@@ -7,6 +7,12 @@
     {
       "code": "SABARA15",
       "discount": 15
+    },
+    {
+      "code": "SABARA",
+      "limit": 0,
+      "discount": 50,
+      "minOrder": 1999
     }
   ]
 }

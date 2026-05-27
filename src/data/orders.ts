@@ -22,8 +22,11 @@ export interface Order {
   customerPhone: string;
   items: OrderItem[];
   total: number;
-  status: "Pending" | "Shipped" | "Delivered" | "Cancelled";
+  status: "Pending" | "Shipped" | "Delivered" | "Cancelled" | "Cancelled by Seller";
   shippingAddress: ShippingAddress;
+  cancellationReason?: string;
+  customerStatus?: "Pending" | "Cancelled by Customer";
+  sellerInstruction?: string;
 }
 
 // In-memory store for orders with high-quality seed data

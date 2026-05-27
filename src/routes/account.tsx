@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, MapPin, Loader2, Lock, Camera, Trash2, ShoppingBag, ChevronDown, ChevronUp, Truck } from "lucide-react";
+import { User, MapPin, Loader2, Lock, Camera, Trash2, ShoppingBag, ChevronDown, ChevronUp, Truck, Info } from "lucide-react";
 import { formatPrice } from "@/lib/cart";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/account")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -47,6 +49,14 @@ function AccountPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState<string | null>(null);
+  const [cancelReasonInput, setCancelReasonInput] = useState("");
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [orderToReturn, setOrderToReturn] = useState<string | null>(null);
+  const [returnReasonInput, setReturnReasonInput] = useState("");
+  const [returningId, setReturningId] = useState<string | null>(null);
 
   // Refs
   const avatarFileRef = useRef<HTMLInputElement>(null);
@@ -105,33 +115,114 @@ function AccountPage() {
     });
   }, [user]);
 
+  const fetchOrders = async () => {
+    if (!user) return;
+    setOrdersLoading(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+
+      const res = await fetch("/api/users/orders", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) {
+        setOrders(json.orders || []);
+      }
+    } catch (err) {
+      console.error("Error fetching orders:", err);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
   // ─── Fetch orders once the user is confirmed ─────────────────────────────
   useEffect(() => {
-    if (!user) return;
+    if (user) {
+      fetchOrders();
+    }
+  }, [user]);
 
-    setOrdersLoading(true);
-    supabase.auth.getSession().then(({ data }) => {
+  const handleCancelOrder = async () => {
+    if (!orderToCancel) return;
+
+    setCancellingId(orderToCancel);
+    try {
+      const { data } = await supabase.auth.getSession();
       const token = data?.session?.access_token;
       if (!token) {
-        setOrdersLoading(false);
+        toast.error("You must be logged in to cancel your order.");
         return;
       }
 
-      fetch("/api/users/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json())
-        .then((json) => {
-          if (json.success) {
-            setOrders(json.orders || []);
-          }
-        })
-        .catch((err) => {
-          console.error("Error fetching orders:", err);
-        })
-        .finally(() => setOrdersLoading(false));
-    });
-  }, [user]);
+      const res = await fetch("/api/users/orders", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ orderId: orderToCancel, reason: cancelReasonInput }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        toast.success("Order cancelled successfully.");
+        setCancelDialogOpen(false);
+        setOrderToCancel(null);
+        setCancelReasonInput("");
+        await fetchOrders();
+      } else {
+        throw new Error(json.error || "Failed to cancel order");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to cancel order. Please try again.");
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const handleReturnOrder = async () => {
+    if (!orderToReturn) return;
+
+    setReturningId(orderToReturn);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) {
+        toast.error("You must be logged in to return your order.");
+        return;
+      }
+
+      const res = await fetch("/api/users/orders", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ 
+          orderId: orderToReturn, 
+          action: "return", 
+          reason: returnReasonInput 
+        }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        toast.success("Return request submitted successfully.");
+        setReturnDialogOpen(false);
+        setOrderToReturn(null);
+        setReturnReasonInput("");
+        await fetchOrders();
+      } else {
+        throw new Error(json.error || "Failed to submit return request");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to submit return request. Please try again.");
+    } finally {
+      setReturningId(null);
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -315,7 +406,15 @@ function AccountPage() {
       case "Delivered":
         return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20";
       case "Cancelled":
+      case "Cancelled by Customer":
+      case "Cancelled by Seller":
         return "bg-destructive/10 text-destructive border border-destructive/20";
+      case "Return Requested":
+        return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20";
+      case "Return Approved":
+        return "bg-gray-500/10 text-gray-600 dark:text-gray-400 border border-gray-500/20";
+      case "Return Rejected":
+        return "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20";
       default:
         return "bg-secondary text-secondary-foreground border border-secondary/20";
     }
@@ -676,8 +775,18 @@ function AccountPage() {
                               <span className="font-mono text-sm font-bold text-foreground">
                                 {order.orderNumber}
                               </span>
-                              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide ${getStatusColor(order.status)}`}>
-                                {order.status}
+                              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                                order.customerStatus === "Cancelled by Customer" 
+                                  ? getStatusColor("Cancelled by Customer") 
+                                  : (order.customerStatus && order.customerStatus !== "Pending")
+                                    ? getStatusColor(order.customerStatus)
+                                    : getStatusColor(order.status)
+                              }`}>
+                                {order.customerStatus === "Cancelled by Customer" 
+                                  ? "Cancelled by Customer" 
+                                  : (order.customerStatus && order.customerStatus !== "Pending")
+                                    ? order.customerStatus
+                                    : order.status}
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground">Placed on {formattedDate}</p>
@@ -733,6 +842,19 @@ function AccountPage() {
                               </div>
                             )}
 
+                            {/* Seller Instruction Box */}
+                            {order.sellerInstruction && (
+                              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <h4 className="font-serif text-sm font-semibold text-foreground flex items-center gap-1.5 mb-1.5">
+                                  <Info className="h-4.5 w-4.5 text-primary shrink-0" />
+                                  Seller Instruction
+                                </h4>
+                                <p className="text-xs text-foreground/95 leading-relaxed font-medium">
+                                  {order.sellerInstruction}
+                                </p>
+                              </div>
+                            )}
+
                             {/* Products list */}
                             <div>
                               <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
@@ -781,26 +903,101 @@ function AccountPage() {
                                   )}
                                 </div>
                               </div>
+
                               <div className="flex flex-col justify-between">
                                 <div>
                                   <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
                                     Payment Summary
                                   </h3>
-                                  <dl className="text-xs space-y-1">
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">Subtotal</span>
-                                      <span className="text-foreground">{formatPrice(order.total)}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">Shipping</span>
-                                      <span className="font-medium text-emerald-600 dark:text-emerald-400">Free</span>
-                                    </div>
-                                    <div className="flex justify-between border-t border-border/60 pt-1.5 font-medium mt-1">
-                                      <span className="text-foreground font-semibold">Total paid</span>
-                                      <span className="text-primary font-bold">{formatPrice(order.total)}</span>
-                                    </div>
-                                  </dl>
+                                  {(() => {
+                                    const itemsSubtotal = order.items.reduce((sum: number, item: any) => sum + (item.price * item.qty), 0);
+                                    return (
+                                      <dl className="text-xs space-y-1">
+                                        <div className="flex justify-between">
+                                          <span className="text-muted-foreground">Subtotal</span>
+                                          <span className="text-foreground">{formatPrice(itemsSubtotal)}</span>
+                                        </div>
+                                        {order.couponCode && order.discountAmount > 0 && (
+                                          <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-medium animate-in fade-in duration-200">
+                                            <span>Discount ({order.couponCode})</span>
+                                            <span>-{formatPrice(order.discountAmount)}</span>
+                                          </div>
+                                        )}
+                                        <div className="flex justify-between">
+                                          <span className="text-muted-foreground">Shipping</span>
+                                          <span className="font-medium text-emerald-600 dark:text-emerald-400">Free</span>
+                                        </div>
+                                        <div className="flex justify-between border-t border-border/60 pt-1.5 font-medium mt-1">
+                                          <span className="text-foreground font-semibold">Total paid</span>
+                                          <span className="text-primary font-bold">{formatPrice(order.total)}</span>
+                                        </div>
+                                      </dl>
+                                    );
+                                  })()}
                                 </div>
+
+                                {(() => {
+                                  const orderDate = new Date(order.date);
+                                  const now = new Date();
+                                  const diffTime = Math.abs(now.getTime() - orderDate.getTime());
+                                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                  const canReturn = diffDays <= 7 && (!order.customerStatus || order.customerStatus === "Pending");
+
+                                  if (order.status === "Delivered" && canReturn) {
+                                    return (
+                                      <div className="mt-4 pt-4 border-t border-border/40 flex justify-end">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOrderToReturn(order.id);
+                                            setReturnReasonInput("");
+                                            setReturnDialogOpen(true);
+                                          }}
+                                          disabled={returningId !== null}
+                                          className="text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10 rounded-full px-5 py-2 cursor-pointer h-9 text-xs font-semibold"
+                                        >
+                                          {returningId === order.id ? (
+                                            <>
+                                              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                              Submitting...
+                                            </>
+                                          ) : (
+                                            "Request Return"
+                                          )}
+                                        </Button>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+
+                                {order.status === "Pending" && order.customerStatus !== "Cancelled by Customer" && (
+                                  <div className="mt-4 pt-4 border-t border-border/40 flex justify-end">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOrderToCancel(order.id);
+                                        setCancelReasonInput("");
+                                        setCancelDialogOpen(true);
+                                      }}
+                                      disabled={cancellingId !== null}
+                                      className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20 rounded-full px-5 py-2 cursor-pointer h-9 text-xs"
+                                    >
+                                      {cancellingId === order.id ? (
+                                        <>
+                                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                          Cancelling...
+                                        </>
+                                      ) : (
+                                        "Cancel Order"
+                                      )}
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -821,6 +1018,132 @@ function AccountPage() {
           Sign out
         </Button>
       </div>
+
+      {/* Custom Cancellation Confirmation Dialog */}
+      <Dialog open={cancelDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setCancelDialogOpen(false);
+          setOrderToCancel(null);
+          setCancelReasonInput("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-xl">Cancel Order</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Are you sure you want to cancel this order? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="cancellation-reason" className="text-xs font-semibold text-foreground uppercase tracking-wider block">
+                Why are you cancelling? (Optional)
+              </Label>
+              <Textarea
+                id="cancellation-reason"
+                placeholder="Let us know why you are cancelling this order (e.g. ordered wrong item, change of mind)..."
+                value={cancelReasonInput}
+                onChange={(e) => setCancelReasonInput(e.target.value)}
+                rows={3}
+                className="text-xs bg-background resize-none focus-visible:ring-1"
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setCancelDialogOpen(false);
+                setOrderToCancel(null);
+                setCancelReasonInput("");
+              }}
+              className="rounded-full text-xs h-9 cursor-pointer"
+            >
+              Go Back
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleCancelOrder}
+              disabled={cancellingId !== null}
+              className="rounded-full text-xs h-9 cursor-pointer"
+            >
+              {cancellingId !== null ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Cancelling...
+                </>
+              ) : (
+                "Confirm Cancellation"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Return Request Confirmation Dialog */}
+      <Dialog open={returnDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setReturnDialogOpen(false);
+          setOrderToReturn(null);
+          setReturnReasonInput("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-xl">Request Return</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Please let us know why you would like to return this order. Returns can be requested within 7 days of delivery.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="return-reason" className="text-xs font-semibold text-foreground uppercase tracking-wider block">
+                Reason for Return
+              </Label>
+              <Textarea
+                id="return-reason"
+                placeholder="Describe the reason for return (e.g. size doesn't fit, wrong item sent, defective product)..."
+                value={returnReasonInput}
+                onChange={(e) => setReturnReasonInput(e.target.value)}
+                rows={3}
+                required
+                className="text-xs bg-background resize-none focus-visible:ring-1"
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setReturnDialogOpen(false);
+                setOrderToReturn(null);
+                setReturnReasonInput("");
+              }}
+              className="rounded-full text-xs h-9 cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleReturnOrder}
+              disabled={returningId !== null || !returnReasonInput.trim()}
+              className="rounded-full text-xs h-9 cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {returningId !== null ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit Return Request"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

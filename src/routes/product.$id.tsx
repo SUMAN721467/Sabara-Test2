@@ -234,6 +234,8 @@ function ProductPage() {
             <dd className="text-foreground">{product.dimensions}</dd>
             <dt className="text-muted-foreground">Made</dt>
             <dd className="text-foreground">By hand, in small batches</dd>
+            <dt className="text-muted-foreground">Returns</dt>
+            <dd className="text-foreground text-emerald-600 dark:text-emerald-400 font-semibold">7 Days Hassle-Free Return</dd>
           </dl>
 
           <div className="mt-8 flex items-stretch gap-3">

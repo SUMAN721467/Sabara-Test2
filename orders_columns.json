@@ -12,21 +12,27 @@
     "shipping_state",
     "shipping_zip_code",
     "user_id",
-    "created_at"
+    "created_at",
+    "cancellation_reason",
+    "customer_status",
+    "seller_instruction"
   ],
   "sample": {
-    "id": "9fe67f17-cd49-47bb-9282-b411901a7f36",
-    "order_number": "LW-2026-0001",
-    "customer_name": "SUman",
-    "customer_email": "software.dev.suman@gmail.com",
-    "customer_phone": null,
-    "total": 4650,
+    "id": "16047ecb-c74a-4774-9740-d0b13e7770c3",
+    "order_number": "LW-2026-0010",
+    "customer_name": "Sabara Admin",
+    "customer_email": "contact.sabara@gmail.com",
+    "customer_phone": "6294359714",
+    "total": 13450,
     "status": "Cancelled",
-    "shipping_street": "ghjgh",
-    "shipping_city": ",njn",
-    "shipping_state": "HR",
-    "shipping_zip_code": "54678",
-    "user_id": "3ac67f42-3ea2-4b7f-8721-76750aa7f189",
-    "created_at": "2026-05-23T12:06:35.151458+00:00"
+    "shipping_street": "Nila|blue dart|bl1237895",
+    "shipping_city": "Paschim Medinipur",
+    "shipping_state": "West Bengal",
+    "shipping_zip_code": "721467",
+    "user_id": "065e6289-aa3d-4997-ad04-7fc323246143",
+    "created_at": "2026-05-25T14:59:10.140753+00:00",
+    "cancellation_reason": null,
+    "customer_status": "Cancelled by Customer",
+    "seller_instruction": null
   }
 }

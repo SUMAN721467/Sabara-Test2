@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { createClient } from "@supabase/supabase-js";
+import { sendActivityEmail } from "@/lib/email";
 
 function getAdminEmails(): Set<string> {
   const envEmails = process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS || "";
@@ -81,6 +82,8 @@ export const Route = createFileRoute("/api/admin/orders")({
             const baseStreet = streetParts[0];
             const courier = streetParts[1] || null;
             const trackingNumber = streetParts[2] || null;
+            const couponCode = streetParts[3] || null;
+            const discountAmount = streetParts[4] ? Number(streetParts[4]) : 0;
 
             return {
               id: o.id,
@@ -92,6 +95,8 @@ export const Route = createFileRoute("/api/admin/orders")({
               status: o.status,
               courier,
               trackingNumber,
+              couponCode,
+              discountAmount,
               date: o.created_at,
               shippingAddress: {
                 street: baseStreet,
@@ -99,6 +104,9 @@ export const Route = createFileRoute("/api/admin/orders")({
                 state: o.shipping_state,
                 zipCode: o.shipping_zip_code
               },
+              cancellationReason: o.cancellation_reason || null,
+              customerStatus: o.customer_status || "Pending",
+              sellerInstruction: o.seller_instruction || null,
               items: (o.order_items || []).map((item: any) => ({
                 productId: item.product_id,
                 productName: item.product_name,
@@ -119,7 +127,7 @@ export const Route = createFileRoute("/api/admin/orders")({
         try {
           await assertAdmin(request, context);
           const body = await request.json();
-          const { id, status, courier, trackingNumber } = body;
+          const { id, status, courier, trackingNumber, sellerInstruction, customerStatus } = body;
           
           if (!id || !status) {
             return Response.json({ success: false, error: "Missing id or status" }, { status: 400 });
@@ -137,28 +145,61 @@ export const Route = createFileRoute("/api/admin/orders")({
               })
             : createClient(supabaseUrl!, supabaseKey!);
 
-          // Get current shipping street to preserve address and get base street
+          // Get current shipping street and status to verify and preserve address
           const { data: currentOrder, error: fetchErr } = await supabase
             .from("orders")
-            .select("shipping_street")
+            .select("status, shipping_street")
             .eq("id", id)
             .single();
 
           if (fetchErr) throw new Error(fetchErr.message);
 
           let updatedStreet = currentOrder?.shipping_street || "";
+          const parts = (currentOrder?.shipping_street || "").split("|");
+          const baseStreet = parts[0];
+          const couponCode = parts[3] || "";
+          const discountAmount = parts[4] || "";
           if (status === "Shipped" && courier && trackingNumber) {
-            const baseStreet = (currentOrder?.shipping_street || "").split("|")[0];
-            updatedStreet = `${baseStreet}|${courier.trim()}|${trackingNumber.trim()}`;
+            updatedStreet = `${baseStreet}|${courier.trim()}|${trackingNumber.trim()}|${couponCode}|${discountAmount}`;
+          } else {
+            const courierVal = parts[1] || "";
+            const trackingVal = parts[2] || "";
+            updatedStreet = `${baseStreet}|${courierVal}|${trackingVal}|${couponCode}|${discountAmount}`;
           }
 
-          // Update status and shipping_street
+          let finalStatus = status;
+          if (status === "Cancelled") {
+            finalStatus = "Cancelled by Seller";
+          }
+
+          // Update status, customer_status, shipping_street and seller_instruction
           const { error: updateError } = await supabase
             .from("orders")
-            .update({ status, shipping_street: updatedStreet })
+            .update({ 
+              status: finalStatus, 
+              customer_status: customerStatus !== undefined ? customerStatus : undefined,
+              shipping_street: updatedStreet,
+              seller_instruction: sellerInstruction !== undefined ? sellerInstruction : undefined
+            })
             .eq("id", id);
-
           if (updateError) throw new Error(updateError.message);
+
+          // Determine the activity type for notifications
+          let activityType: "return_approved" | "return_rejected" | "status_update" | null = null;
+          if (customerStatus === "Return Approved") {
+            activityType = "return_approved";
+          } else if (customerStatus === "Return Rejected") {
+            activityType = "return_rejected";
+          } else if (finalStatus !== currentOrder?.status || sellerInstruction !== undefined) {
+            activityType = "status_update";
+          }
+
+          if (activityType) {
+            const origin = new URL(request.url).origin;
+            sendActivityEmail(activityType, id, supabase, origin).catch((e) => {
+              console.error(`[api/admin/orders PUT email dispatch error]`, e);
+            });
+          }
 
           const { data: dbOrders, error: ordersError } = await supabase
             .from("orders")
@@ -172,6 +213,8 @@ export const Route = createFileRoute("/api/admin/orders")({
             const baseStreet = streetParts[0];
             const courier = streetParts[1] || null;
             const trackingNumber = streetParts[2] || null;
+            const couponCode = streetParts[3] || null;
+            const discountAmount = streetParts[4] ? Number(streetParts[4]) : 0;
 
             return {
               id: o.id,
@@ -183,6 +226,8 @@ export const Route = createFileRoute("/api/admin/orders")({
               status: o.status,
               courier,
               trackingNumber,
+              couponCode,
+              discountAmount,
               date: o.created_at,
               shippingAddress: {
                 street: baseStreet,
@@ -190,6 +235,9 @@ export const Route = createFileRoute("/api/admin/orders")({
                 state: o.shipping_state,
                 zipCode: o.shipping_zip_code
               },
+              cancellationReason: o.cancellation_reason || null,
+              customerStatus: o.customer_status || "Pending",
+              sellerInstruction: o.seller_instruction || null,
               items: (o.order_items || []).map((item: any) => ({
                 productId: item.product_id,
                 productName: item.product_name,

@@ -68,6 +68,9 @@ export const Route = createFileRoute("/api/checkout")({
           // Apply coupon discount securely
           let discount = 0;
           const code = couponCode?.trim().toUpperCase();
+          let matchedCouponToDecrement: any = null;
+          let allCouponsList: any[] = [];
+
           if (code) {
             const { data: settingData } = await supabase
               .from("site_settings")
@@ -100,13 +103,41 @@ export const Route = createFileRoute("/api/checkout")({
               ];
             }
 
+            allCouponsList = dbCoupons;
             const matchedCoupon = dbCoupons.find(
               (c: any) => c.code?.trim().toUpperCase() === code
             );
 
             if (matchedCoupon) {
+              // Validate minimum order requirement
+              if (matchedCoupon.minOrder !== undefined && matchedCoupon.minOrder !== null) {
+                const minOrderNum = Number(matchedCoupon.minOrder);
+                if (secureSubtotal < minOrderNum) {
+                  return Response.json(
+                    { success: false, error: `Minimum order amount of ₹${minOrderNum} is required to apply coupon "${code}".` },
+                    { status: 400 }
+                  );
+                }
+              }
+              // Validate usage limit
+              if (matchedCoupon.limit !== undefined && matchedCoupon.limit !== null) {
+                const limitNum = Number(matchedCoupon.limit);
+                if (limitNum <= 0) {
+                  return Response.json(
+                    { success: false, error: `Coupon "${code}" usage limit has been reached.` },
+                    { status: 400 }
+                  );
+                }
+              }
+
+              matchedCouponToDecrement = matchedCoupon;
               const pct = Number(matchedCoupon.discount) || 0;
               discount = Math.round(secureSubtotal * (pct / 100));
+            } else {
+              return Response.json(
+                { success: false, error: `Coupon code "${code}" is invalid.` },
+                { status: 400 }
+              );
             }
           }
           const finalTotal = Math.max(0, secureSubtotal - discount);
@@ -118,7 +149,6 @@ export const Route = createFileRoute("/api/checkout")({
 
           const seq = (count || 0) + 1;
           const orderNumber = `LW-2026-${String(seq).padStart(4, "0")}`;
-
           // Insert order
           const { data: order, error: orderError } = await supabase
             .from("orders")
@@ -129,7 +159,9 @@ export const Route = createFileRoute("/api/checkout")({
               customer_phone: customerPhone || null,
               total: finalTotal,
               status: "Pending",
-              shipping_street: shippingAddress.street,
+              shipping_street: code 
+                ? `${shippingAddress.street.replace(/\|/g, " ")}|||${code}|${discount}` 
+                : shippingAddress.street.replace(/\|/g, " "),
               shipping_city: shippingAddress.city,
               shipping_state: shippingAddress.state,
               shipping_zip_code: shippingAddress.zipCode,
@@ -158,6 +190,58 @@ export const Route = createFileRoute("/api/checkout")({
             // Roll back order insertion
             await supabase.from("orders").delete().eq("id", order.id);
             throw new Error(itemsError.message);
+          }
+
+          // Decrement coupon limit if applicable
+          if (matchedCouponToDecrement && matchedCouponToDecrement.limit !== undefined && matchedCouponToDecrement.limit !== null) {
+            const updatedCoupons = allCouponsList.map((c: any) => {
+              if (c.code?.trim().toUpperCase() === matchedCouponToDecrement.code?.trim().toUpperCase()) {
+                return {
+                  ...c,
+                  limit: Math.max(0, Number(c.limit) - 1)
+                };
+              }
+              return c;
+            });
+
+            // Write back to database using Service Role key if possible to bypass RLS, otherwise fallback to publishable key client
+            const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+            const isServiceKeyValid = !!(serviceKey && serviceKey.trim() && serviceKey.trim().startsWith("eyJ"));
+            const supabaseAdmin = isServiceKeyValid
+              ? createClient(supabaseUrl!, serviceKey!, {
+                  auth: {
+                    storage: undefined,
+                    persistSession: false,
+                    autoRefreshToken: false,
+                  }
+                })
+              : supabase;
+
+            try {
+              const { error: updateErr } = await supabaseAdmin
+                .from("site_settings")
+                .upsert({
+                  key: "coupons",
+                  value: { coupons: updatedCoupons },
+                  updated_at: new Date().toISOString()
+                });
+              if (updateErr) {
+                console.warn("[api/checkout coupon decrement db error]", updateErr.message);
+              }
+            } catch (e: any) {
+              console.warn("[api/checkout coupon decrement db exception]", e);
+            }
+
+            // Write to fallback JSON file
+            try {
+              const fs = await import("fs/promises");
+              const path = await import("path");
+              const filePath = path.join(process.cwd(), "src", "data", "coupons.json");
+              await fs.mkdir(path.dirname(filePath), { recursive: true });
+              await fs.writeFile(filePath, JSON.stringify({ coupons: updatedCoupons }, null, 2), "utf-8");
+            } catch (fsErr) {
+              console.error("[api/checkout coupon decrement local write error]", fsErr);
+            }
           }
 
           const camelCaseOrder = {

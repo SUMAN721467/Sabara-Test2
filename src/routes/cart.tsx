@@ -66,6 +66,12 @@ function CartPage() {
         (c) => c.code.toUpperCase() === appliedCoupon.toUpperCase()
       );
       if (match) {
+        if (match.minOrder !== undefined && match.minOrder !== null && subtotal < match.minOrder) {
+          setAppliedCoupon(null);
+          setDiscount(0);
+          toast.error(`Coupon removed: Subtotal must be at least ₹${match.minOrder} to use this coupon.`);
+          return;
+        }
         setDiscount(Math.round(subtotal * (Number(match.discount) / 100)));
         return;
       }
@@ -83,6 +89,16 @@ function CartPage() {
     );
 
     if (match) {
+      // Validate minimum order requirement
+      if (match.minOrder !== undefined && match.minOrder !== null && subtotal < match.minOrder) {
+        toast.error(`Minimum order amount of ₹${match.minOrder} is required for this coupon.`);
+        return;
+      }
+      // Validate usage limit
+      if (match.limit !== undefined && match.limit !== null && match.limit <= 0) {
+        toast.error(`This coupon has reached its limit and is no longer available.`);
+        return;
+      }
       setAppliedCoupon(match.code.toUpperCase());
       toast.success(`Coupon ${match.code.toUpperCase()} applied! (${match.discount}% off)`);
     } else {

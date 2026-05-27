@@ -20,6 +20,8 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProductIdRouteImport } from './routes/product.$id'
+import { Route as ApiTestReturnRouteImport } from './routes/api/test-return'
+import { Route as ApiTestEmailRouteImport } from './routes/api/test-email'
 import { Route as ApiTestDbRouteImport } from './routes/api/test-db'
 import { Route as ApiSiteSettingsRouteImport } from './routes/api/site-settings'
 import { Route as ApiProductsRouteImport } from './routes/api/products'
@@ -85,6 +87,16 @@ const IndexRoute = IndexRouteImport.update({
 const ProductIdRoute = ProductIdRouteImport.update({
   id: '/product/$id',
   path: '/product/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTestReturnRoute = ApiTestReturnRouteImport.update({
+  id: '/api/test-return',
+  path: '/api/test-return',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTestEmailRoute = ApiTestEmailRouteImport.update({
+  id: '/api/test-email',
+  path: '/api/test-email',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTestDbRoute = ApiTestDbRouteImport.update({
@@ -158,6 +170,8 @@ export interface FileRoutesByFullPath {
   '/api/products': typeof ApiProductsRoute
   '/api/site-settings': typeof ApiSiteSettingsRoute
   '/api/test-db': typeof ApiTestDbRoute
+  '/api/test-email': typeof ApiTestEmailRoute
+  '/api/test-return': typeof ApiTestReturnRoute
   '/product/$id': typeof ProductIdRoute
   '/api/admin/customers': typeof ApiAdminCustomersRoute
   '/api/admin/orders': typeof ApiAdminOrdersRoute
@@ -182,6 +196,8 @@ export interface FileRoutesByTo {
   '/api/products': typeof ApiProductsRoute
   '/api/site-settings': typeof ApiSiteSettingsRoute
   '/api/test-db': typeof ApiTestDbRoute
+  '/api/test-email': typeof ApiTestEmailRoute
+  '/api/test-return': typeof ApiTestReturnRoute
   '/product/$id': typeof ProductIdRoute
   '/api/admin/customers': typeof ApiAdminCustomersRoute
   '/api/admin/orders': typeof ApiAdminOrdersRoute
@@ -207,6 +223,8 @@ export interface FileRoutesById {
   '/api/products': typeof ApiProductsRoute
   '/api/site-settings': typeof ApiSiteSettingsRoute
   '/api/test-db': typeof ApiTestDbRoute
+  '/api/test-email': typeof ApiTestEmailRoute
+  '/api/test-return': typeof ApiTestReturnRoute
   '/product/$id': typeof ProductIdRoute
   '/api/admin/customers': typeof ApiAdminCustomersRoute
   '/api/admin/orders': typeof ApiAdminOrdersRoute
@@ -233,6 +251,8 @@ export interface FileRouteTypes {
     | '/api/products'
     | '/api/site-settings'
     | '/api/test-db'
+    | '/api/test-email'
+    | '/api/test-return'
     | '/product/$id'
     | '/api/admin/customers'
     | '/api/admin/orders'
@@ -257,6 +277,8 @@ export interface FileRouteTypes {
     | '/api/products'
     | '/api/site-settings'
     | '/api/test-db'
+    | '/api/test-email'
+    | '/api/test-return'
     | '/product/$id'
     | '/api/admin/customers'
     | '/api/admin/orders'
@@ -281,6 +303,8 @@ export interface FileRouteTypes {
     | '/api/products'
     | '/api/site-settings'
     | '/api/test-db'
+    | '/api/test-email'
+    | '/api/test-return'
     | '/product/$id'
     | '/api/admin/customers'
     | '/api/admin/orders'
@@ -306,6 +330,8 @@ export interface RootRouteChildren {
   ApiProductsRoute: typeof ApiProductsRoute
   ApiSiteSettingsRoute: typeof ApiSiteSettingsRoute
   ApiTestDbRoute: typeof ApiTestDbRoute
+  ApiTestEmailRoute: typeof ApiTestEmailRoute
+  ApiTestReturnRoute: typeof ApiTestReturnRoute
   ProductIdRoute: typeof ProductIdRoute
   ApiAdminCustomersRoute: typeof ApiAdminCustomersRoute
   ApiAdminOrdersRoute: typeof ApiAdminOrdersRoute
@@ -393,6 +419,20 @@ declare module '@tanstack/react-router' {
       path: '/product/$id'
       fullPath: '/product/$id'
       preLoaderRoute: typeof ProductIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/test-return': {
+      id: '/api/test-return'
+      path: '/api/test-return'
+      fullPath: '/api/test-return'
+      preLoaderRoute: typeof ApiTestReturnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/test-email': {
+      id: '/api/test-email'
+      path: '/api/test-email'
+      fullPath: '/api/test-email'
+      preLoaderRoute: typeof ApiTestEmailRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/test-db': {
@@ -490,6 +530,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiProductsRoute: ApiProductsRoute,
   ApiSiteSettingsRoute: ApiSiteSettingsRoute,
   ApiTestDbRoute: ApiTestDbRoute,
+  ApiTestEmailRoute: ApiTestEmailRoute,
+  ApiTestReturnRoute: ApiTestReturnRoute,
   ProductIdRoute: ProductIdRoute,
   ApiAdminCustomersRoute: ApiAdminCustomersRoute,
   ApiAdminOrdersRoute: ApiAdminOrdersRoute,

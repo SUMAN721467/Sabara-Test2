@@ -125,7 +125,7 @@ function AdminPage() {
 
   // Calculate statistics
   const totalRevenue = orders
-    .filter((o) => o.status !== "Cancelled")
+    .filter((o) => o.status !== "Cancelled" && o.status !== "Cancelled by Seller" && o.customerStatus !== "Cancelled by Customer")
     .reduce((sum, o) => sum + o.total, 0);
 
   const stats = [
@@ -681,6 +681,7 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
   const [selectedStatus, setSelectedStatus] = useState("");
   const [courierInput, setCourierInput] = useState("");
   const [trackingNumberInput, setTrackingNumberInput] = useState("");
+  const [sellerInstructionInput, setSellerInstructionInput] = useState("");
 
   useEffect(() => { setOrders(initialOrders); }, [initialOrders]);
 
@@ -689,14 +690,16 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
       setSelectedStatus(selectedOrder.status || "");
       setCourierInput(selectedOrder.courier || "");
       setTrackingNumberInput(selectedOrder.trackingNumber || "");
+      setSellerInstructionInput(selectedOrder.sellerInstruction || "");
     } else {
       setSelectedStatus("");
       setCourierInput("");
       setTrackingNumberInput("");
+      setSellerInstructionInput("");
     }
   }, [selectedOrder]);
 
-  const handleStatusChange = async (id: string, newStatus: string, courierVal?: string, trackingVal?: string) => {
+  const handleStatusChange = async (id: string, newStatus: string, courierVal?: string, trackingVal?: string, sellerInstructionVal?: string, customerStatusVal?: string) => {
     setUpdatingId(id);
     try {
       const headers = await getAuthHeaders();
@@ -705,6 +708,12 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
         payload.courier = courierVal || "";
         payload.trackingNumber = trackingVal || "";
       }
+      if (sellerInstructionVal !== undefined) {
+        payload.sellerInstruction = sellerInstructionVal;
+      }
+      if (customerStatusVal !== undefined) {
+        payload.customerStatus = customerStatusVal;
+      }
       const res = await fetch("/api/admin/orders", {
         method: "PUT",
         headers,
@@ -712,7 +721,7 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || "Failed to update status");
-      toast.success("Order status updated!");
+      toast.success("Order updated successfully!");
       await onRefresh();
 
       if (selectedOrder && selectedOrder.id === id) {
@@ -720,7 +729,9 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
           ...prev,
           status: newStatus,
           courier: newStatus === "Shipped" ? courierVal : null,
-          trackingNumber: newStatus === "Shipped" ? trackingVal : null
+          trackingNumber: newStatus === "Shipped" ? trackingVal : null,
+          sellerInstruction: sellerInstructionVal !== undefined ? sellerInstructionVal : prev.sellerInstruction,
+          customerStatus: customerStatusVal !== undefined ? customerStatusVal : prev.customerStatus
         }));
       }
     } catch (e: any) {
@@ -743,7 +754,10 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
       case "Pending": return "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400";
       case "Shipped": return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
       case "Delivered": return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-      case "Cancelled": return "bg-destructive/10 text-destructive";
+      case "Cancelled":
+      case "Cancelled by Customer":
+      case "Cancelled by Seller":
+        return "bg-destructive/10 text-destructive";
       default: return "bg-secondary text-secondary-foreground";
     }
   };
@@ -774,12 +788,80 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
                   <h2 className="text-2xl font-serif">{selectedOrder.orderNumber}</h2>
                   <p className="text-sm text-muted-foreground">{formatDate(selectedOrder.date)}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusColor(selectedOrder.status)}`}>
-                    {selectedOrder.status}
-                  </span>
+                <div className="flex flex-col gap-2 items-end">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold">Seller Status:</span>
+                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(selectedOrder.status)}`}>
+                      {selectedOrder.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold">Customer Status:</span>
+                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                      selectedOrder.customerStatus === "Cancelled by Customer"
+                        ? "bg-destructive/10 text-destructive border border-destructive/20"
+                        : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20"
+                    }`}>
+                      {selectedOrder.customerStatus || "Pending"}
+                    </span>
+                  </div>
                 </div>
               </div>
+
+              {selectedOrder.cancellationReason && selectedOrder.customerStatus !== "Return Requested" && selectedOrder.customerStatus !== "Return Approved" && selectedOrder.customerStatus !== "Return Rejected" && (
+                <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <span className="text-xs uppercase tracking-wider text-destructive font-semibold block">Reason for Cancellation</span>
+                  <p className="text-sm mt-1 text-foreground font-medium">{selectedOrder.cancellationReason}</p>
+                </div>
+              )}
+
+              {selectedOrder.customerStatus === "Return Requested" && (
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-5 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div>
+                    <span className="text-xs uppercase tracking-wider text-purple-700 dark:text-purple-400 font-bold block">
+                      Return Requested by Customer
+                    </span>
+                    <p className="text-sm mt-1 text-foreground font-medium">
+                      Reason: "{selectedOrder.cancellationReason || "No reason provided"}"
+                    </p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      size="sm"
+                      onClick={() => handleStatusChange(selectedOrder.id, "Cancelled", courierInput, trackingNumberInput, sellerInstructionInput, "Return Approved")}
+                      disabled={updatingId === selectedOrder.id}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-full px-5 text-xs font-semibold cursor-pointer"
+                    >
+                      Approve Return
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleStatusChange(selectedOrder.id, "Delivered", courierInput, trackingNumberInput, sellerInstructionInput, "Return Rejected")}
+                      disabled={updatingId === selectedOrder.id}
+                      className="border-red-200 text-red-600 hover:bg-red-500/10 rounded-full px-5 text-xs font-semibold cursor-pointer"
+                    >
+                      Reject Return
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {(selectedOrder.customerStatus === "Return Approved" || selectedOrder.customerStatus === "Return Rejected") && (
+                <div className={`border rounded-xl p-4 animate-in fade-in slide-in-from-top-1 duration-200 ${
+                  selectedOrder.customerStatus === "Return Approved"
+                    ? "bg-gray-100 dark:bg-gray-900/30 border-gray-200 text-gray-700 dark:text-gray-400"
+                    : "bg-red-500/10 border-red-500/20 text-red-600"
+                }`}>
+                  <span className="text-xs uppercase tracking-wider font-bold block">
+                    Return Request {selectedOrder.customerStatus === "Return Approved" ? "Approved" : "Rejected"}
+                  </span>
+                  <p className="text-sm mt-1 font-medium font-serif">
+                    Customer Reason: "{selectedOrder.cancellationReason || "No reason provided"}"
+                  </p>
+                </div>
+              )}
 
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Ordered Items</h3>
@@ -797,9 +879,35 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
                 </ul>
               </div>
 
-              <div className="flex justify-between items-center bg-secondary/30 rounded-xl p-4">
-                <span className="font-medium">Total Amount:</span>
-                <span className="font-serif text-2xl text-primary font-bold">{formatPrice(selectedOrder.total)}</span>
+              <div className="bg-secondary/30 rounded-xl p-6 space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-2">
+                  Payment Details
+                </h3>
+                {(() => {
+                  const itemsSubtotal = selectedOrder.items.reduce((sum: number, item: any) => sum + (item.price * item.qty), 0);
+                  return (
+                    <dl className="text-sm space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Subtotal:</span>
+                        <span className="font-medium text-foreground">{formatPrice(itemsSubtotal)}</span>
+                      </div>
+                      {selectedOrder.couponCode && selectedOrder.discountAmount > 0 && (
+                        <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-medium">
+                          <span>Discount ({selectedOrder.couponCode}):</span>
+                          <span>-{formatPrice(selectedOrder.discountAmount)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Shipping:</span>
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">Free</span>
+                      </div>
+                      <div className="flex justify-between border-t pt-3 font-semibold mt-2 text-base">
+                        <span className="text-foreground">Total Paid:</span>
+                        <span className="text-primary font-bold">{formatPrice(selectedOrder.total)}</span>
+                      </div>
+                    </dl>
+                  );
+                })()}
               </div>
             </div>
 
@@ -840,15 +948,19 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
                       const val = e.target.value;
                       setSelectedStatus(val);
                       if (val !== "Shipped") {
-                        handleStatusChange(selectedOrder.id, val);
+                        handleStatusChange(selectedOrder.id, val, courierInput, trackingNumberInput, sellerInstructionInput);
                       }
                     }}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-ring outline-none"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-ring outline-none disabled:opacity-75 disabled:cursor-not-allowed"
                   >
                     <option value="Pending">Pending</option>
                     <option value="Shipped">Shipped</option>
                     <option value="Delivered">Delivered</option>
-                    <option value="Cancelled">Cancelled</option>
+                    <option value="Cancelled by Seller">Cancelled by Seller</option>
+                    <option value="Cancelled by Customer">Cancelled by Customer</option>
+                    {selectedStatus === "Cancelled" && (
+                      <option value="Cancelled">Cancelled</option>
+                    )}
                   </select>
 
                   {selectedStatus === "Shipped" && (
@@ -877,13 +989,51 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
                         size="sm"
                         className="w-full text-xs h-9 cursor-pointer"
                         disabled={updatingId === selectedOrder.id || !courierInput.trim() || !trackingNumberInput.trim()}
-                        onClick={() => handleStatusChange(selectedOrder.id, "Shipped", courierInput, trackingNumberInput)}
+                        onClick={() => handleStatusChange(selectedOrder.id, "Shipped", courierInput, trackingNumberInput, sellerInstructionInput)}
                       >
                         {updatingId === selectedOrder.id ? "Saving Details..." : "Save Shipped Details"}
                       </Button>
                     </div>
                   )}
                 </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <Label htmlFor="seller-instruction-textarea" className="text-xs uppercase tracking-wider text-muted-foreground block font-semibold">Special Instruction / Message to Customer</Label>
+                  <Textarea
+                    id="seller-instruction-textarea"
+                    placeholder="Enter any instructions or update message for the customer here..."
+                    value={sellerInstructionInput}
+                    onChange={(e) => setSellerInstructionInput(e.target.value)}
+                    rows={3}
+                    className="text-xs bg-background focus-visible:ring-1"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full text-xs h-9 cursor-pointer"
+                    disabled={updatingId === selectedOrder.id}
+                    onClick={() => handleStatusChange(selectedOrder.id, selectedStatus, courierInput, trackingNumberInput, sellerInstructionInput)}
+                  >
+                    {updatingId === selectedOrder.id ? "Saving Instruction..." : "Send Instruction to Customer"}
+                  </Button>
+                </div>
+
+                {/* Customer Cancellation Reason */}
+                {(selectedOrder.status === "Cancelled by Customer" || selectedOrder.cancellationReason) && (
+                  <div className="border-t pt-4 space-y-3 animate-in fade-in duration-200">
+                    <Label htmlFor="customer-reason-textarea" className="text-xs font-semibold text-destructive uppercase tracking-wider block">
+                      Customer Cancellation Reason
+                    </Label>
+                    <Textarea
+                      id="customer-reason-textarea"
+                      readOnly
+                      disabled
+                      value={selectedOrder.cancellationReason || "No cancellation reason provided."}
+                      rows={3}
+                      className="text-xs bg-destructive/5 text-destructive-foreground border-destructive/20 cursor-not-allowed opacity-80"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -950,12 +1100,29 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
-                          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(order.status)}`}>
-                            {order.status}
-                          </span>
+                        <div className="flex flex-col gap-1.5 py-1">
+                          {/* Seller Status */}
+                          <div className="flex items-center gap-1">
+                            <span className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wider w-[55px]">Seller:</span>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold ${getStatusColor(order.status)}`}>
+                              {order.status}
+                            </span>
+                          </div>
+                          {/* Customer Status */}
+                          <div className="flex items-center gap-1">
+                            <span className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wider w-[55px]">Customer:</span>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                              order.customerStatus === "Cancelled by Customer"
+                                ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                : (order.customerStatus && order.customerStatus !== "Pending")
+                                  ? getStatusColor(order.customerStatus)
+                                  : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20"
+                            }`}>
+                              {order.customerStatus || "Pending"}
+                            </span>
+                          </div>
                           {order.status === "Shipped" && order.courier && (
-                            <div className="text-[10px] text-muted-foreground leading-tight">
+                            <div className="text-[9px] text-muted-foreground leading-tight pl-[59px] mt-0.5">
                               <span className="font-semibold">{order.courier}</span>: {order.trackingNumber}
                             </div>
                           )}
@@ -977,12 +1144,16 @@ function OrdersAdmin({ initialOrders, onRefresh }: { initialOrders: any[], onRef
                               handleStatusChange(order.id, val);
                             }
                           }}
-                          className="rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+                          className="rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring disabled:opacity-75 disabled:cursor-not-allowed"
                         >
                           <option value="Pending">Pending</option>
                           <option value="Shipped">Shipped</option>
                           <option value="Delivered">Delivered</option>
-                          <option value="Cancelled">Cancelled</option>
+                          <option value="Cancelled by Seller">Cancelled by Seller</option>
+                          <option value="Cancelled by Customer">Cancelled by Customer</option>
+                          {order.status === "Cancelled" && (
+                            <option value="Cancelled">Cancelled</option>
+                          )}
                         </select>
                       </TableCell>
                     </TableRow>
@@ -1037,7 +1208,10 @@ function CustomersAdmin({
       case "Pending": return "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400";
       case "Shipped": return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
       case "Delivered": return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-      case "Cancelled": return "bg-destructive/10 text-destructive";
+      case "Cancelled":
+      case "Cancelled by Customer":
+      case "Cancelled by Seller":
+        return "bg-destructive/10 text-destructive";
       default: return "bg-secondary text-secondary-foreground";
     }
   };
@@ -1318,9 +1492,16 @@ function CustomersAdmin({
                           <TableCell className="font-mono font-medium text-sm">{o.orderNumber}</TableCell>
                           <TableCell className="text-sm">{formatDate(o.date)}</TableCell>
                           <TableCell>
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${getStatusColor(o.status)}`}>
-                              {o.status}
-                            </span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold w-fit ${getStatusColor(o.status)}`}>
+                                {o.status}
+                              </span>
+                              {o.cancellationReason && (
+                                <span className="text-[10px] text-destructive/80 font-medium max-w-[180px] truncate" title={o.cancellationReason}>
+                                  Reason: {o.cancellationReason}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-right font-medium text-sm">{formatPrice(o.total)}</TableCell>
                         </TableRow>
@@ -1537,6 +1718,8 @@ function CouponsAdmin() {
   const [adding, setAdding] = useState(false);
   const [code, setCode] = useState("");
   const [discount, setDiscount] = useState("");
+  const [minOrder, setMinOrder] = useState("");
+  const [limit, setLimit] = useState("");
 
   const fetchCoupons = async () => {
     try {
@@ -1587,6 +1770,8 @@ function CouponsAdmin() {
     e.preventDefault();
     const formattedCode = code.trim().toUpperCase();
     const pct = parseInt(discount, 10);
+    const minOrderVal = minOrder.trim() ? parseFloat(minOrder) : undefined;
+    const limitVal = limit.trim() ? parseInt(limit, 10) : undefined;
 
     if (!formattedCode) {
       toast.error("Please enter a coupon code");
@@ -1596,6 +1781,14 @@ function CouponsAdmin() {
       toast.error("Please enter a valid discount percentage (1-100)");
       return;
     }
+    if (minOrderVal !== undefined && (isNaN(minOrderVal) || minOrderVal < 0)) {
+      toast.error("Please enter a valid minimum order amount");
+      return;
+    }
+    if (limitVal !== undefined && (isNaN(limitVal) || limitVal < 0)) {
+      toast.error("Please enter a valid usage limit (stock)");
+      return;
+    }
 
     if (coupons.some((c) => c.code.toUpperCase() === formattedCode)) {
       toast.error("A coupon with this code already exists");
@@ -1603,13 +1796,21 @@ function CouponsAdmin() {
     }
 
     setAdding(true);
-    const updatedList = [...coupons, { code: formattedCode, discount: pct }];
+    const newCoupon = {
+      code: formattedCode,
+      discount: pct,
+      ...(minOrderVal !== undefined ? { minOrder: minOrderVal } : {}),
+      ...(limitVal !== undefined ? { limit: limitVal } : {})
+    };
+    const updatedList = [...coupons, newCoupon];
 
     try {
       await saveCoupons(updatedList);
       setCoupons(updatedList);
       setCode("");
       setDiscount("");
+      setMinOrder("");
+      setLimit("");
       toast.success(`Coupon ${formattedCode} added successfully!`);
     } catch (err: any) {
       toast.error(err.message || "Failed to add coupon");
@@ -1666,13 +1867,15 @@ function CouponsAdmin() {
               <TableRow>
                 <TableHead>Coupon Code</TableHead>
                 <TableHead>Discount Value</TableHead>
+                <TableHead>Min Order</TableHead>
+                <TableHead>Usage Limit / Stock</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {coupons.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                     No active coupons found. Add one on the right!
                   </TableCell>
                 </TableRow>
@@ -1686,6 +1889,18 @@ function CouponsAdmin() {
                     </TableCell>
                     <TableCell className="font-medium text-emerald-600 dark:text-emerald-400">
                       {c.discount}% Discount
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground font-medium">
+                      {c.minOrder !== undefined && c.minOrder !== null ? `₹${c.minOrder}` : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {c.limit !== undefined && c.limit !== null ? (
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${c.limit <= 0 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"}`}>
+                          {c.limit} left
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Unlimited</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
@@ -1736,6 +1951,36 @@ function CouponsAdmin() {
             />
             <p className="text-[10px] text-muted-foreground">
               Percentage value between 1 and 100 deducted from the subtotal.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="minOrder">Minimum Order Amount (₹)</Label>
+            <Input
+              id="minOrder"
+              type="number"
+              min="0"
+              placeholder="e.g. 500 (Optional)"
+              value={minOrder}
+              onChange={(e) => setMinOrder(e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Minimum cart subtotal required to apply this coupon. Leave empty for no minimum.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="usageLimit">Usage Limit (Stock)</Label>
+            <Input
+              id="usageLimit"
+              type="number"
+              min="0"
+              placeholder="e.g. 50 (Optional)"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Number of times this coupon can be applied overall. Leave empty for unlimited.
             </p>
           </div>
 
