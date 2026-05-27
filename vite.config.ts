@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 import react from "@vitejs/plugin-react";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import { nitro } from "nitro/vite";
 
 const isVercel = !!process.env.VERCEL;
 
@@ -29,13 +30,19 @@ export default defineConfig(async ({ command, mode }) => {
   // React plugin
   plugins.push(react());
 
-  // Cloudflare plugin — only during build and NOT on Vercel
-  if (!isVercel && command === "build") {
-    try {
-      const { cloudflare } = await import("@cloudflare/vite-plugin");
-      plugins.push(cloudflare({ viteEnvironment: { name: "ssr" } }));
-    } catch {
-      // @cloudflare/vite-plugin not installed — skip
+  if (isVercel) {
+    // On Vercel: use Nitro to build serverless functions
+    plugins.push(nitro());
+  } else {
+    // Locally / Cloudflare: use the Cloudflare plugin for Workers build
+    if (command === "build") {
+      try {
+        const { cloudflare } = await import("@cloudflare/vite-plugin");
+        plugins.push(cloudflare({ viteEnvironment: { name: "ssr" } }));
+      } catch {
+        // @cloudflare/vite-plugin not installed — fall back to nitro
+        plugins.push(nitro());
+      }
     }
   }
 

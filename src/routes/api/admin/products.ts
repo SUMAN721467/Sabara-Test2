@@ -88,6 +88,7 @@ export const Route = createFileRoute("/api/admin/products")({
             .insert({
               name: body.name,
               price: body.price,
+              original_price: body.original_price || null,
               image: body.image,
               category: body.category,
               materials: body.materials,
@@ -121,6 +122,7 @@ export const Route = createFileRoute("/api/admin/products")({
               id: body.id,
               name: body.name,
               price: body.price,
+              original_price: body.original_price || null,
               image: body.image,
               category: body.category,
               materials: body.materials,

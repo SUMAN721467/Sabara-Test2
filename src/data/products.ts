@@ -11,6 +11,7 @@ export type Product = {
   id: string;
   name: string;
   price: number;
+  original_price?: number | null;
   category: Category;
   materials: string;
   dimensions: string;

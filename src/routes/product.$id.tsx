@@ -50,7 +50,7 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
   const [bgPos, setBgPos] = useState("0% 0%");
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, height: 0 });
 
-  const lensSize = { width: 180, height: 225 }; // aspect-ratio matching aspect-[4/5] (e.g. 180/225 = 4/5)
+  const lensSize = { width: 130, height: 162.5 }; // aspect-ratio matching aspect-[4/5] (e.g. 130/162.5 = 4/5) - smaller lens = higher zoom factor
 
   useEffect(() => {
     const checkIsDesktop = () => {
@@ -136,11 +136,11 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
             position: "absolute",
             left: `${coords.left}px`,
             top: `${coords.top}px`,
-            width: `${coords.width * 0.75}px`,
-            height: `${coords.height * 0.75}px`,
+            width: `${coords.width * 1.05}px`,
+            height: `${coords.height * 1.05}px`,
             backgroundImage: `url(${src})`,
             backgroundPosition: bgPos,
-            backgroundSize: `${(coords.width / lensSize.width * 100) / 0.75}% ${(coords.height / lensSize.height * 100) / 0.75}%`,
+            backgroundSize: `${(coords.width / lensSize.width * 100) / 1.05}% ${(coords.height / lensSize.height * 100) / 1.05}%`,
             backgroundRepeat: "no-repeat",
             pointerEvents: "none"
           }}
@@ -223,7 +223,21 @@ function ProductPage() {
           <h1 className="mt-3 font-serif text-4xl leading-tight text-foreground md:text-5xl">
             {product.name}
           </h1>
-          <div className="mt-3 text-xl text-muted-foreground">{formatPrice(product.price)}</div>
+          {product.original_price && product.original_price > product.price ? (
+            <div className="mt-3 flex items-center gap-3">
+              <span className="text-2xl font-semibold text-red-600 dark:text-red-400">
+                {formatPrice(product.price)}
+              </span>
+              <span className="text-lg text-muted-foreground line-through decoration-muted-foreground">
+                {formatPrice(product.original_price)}
+              </span>
+              <span className="rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 animate-in fade-in duration-300">
+                {Math.round(((product.original_price - product.price) / product.original_price) * 100)}% OFF
+              </span>
+            </div>
+          ) : (
+            <div className="mt-3 text-xl text-muted-foreground">{formatPrice(product.price)}</div>
+          )}
 
           <p className="mt-6 leading-relaxed text-foreground/80">{product.story}</p>
 

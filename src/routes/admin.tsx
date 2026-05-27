@@ -313,7 +313,23 @@ function ProductsAdmin({ initialProducts, onRefresh }: { initialProducts: any[],
                     {p.category}
                   </span>
                 </TableCell>
-                <TableCell>{formatPrice(p.price)}</TableCell>
+                <TableCell>
+                  {p.original_price && p.original_price > p.price ? (
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
+                        {formatPrice(p.price)}
+                      </div>
+                      <div className="text-xs text-muted-foreground line-through whitespace-nowrap">
+                        {formatPrice(p.original_price)}
+                      </div>
+                      <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">
+                        {Math.round(((p.original_price - p.price) / p.original_price) * 100)}% off
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="font-medium text-foreground">{formatPrice(p.price)}</span>
+                  )}
+                </TableCell>
                 <TableCell>
                   {p.stock !== undefined && p.stock !== null ? (
                     p.stock <= 3 ? (
@@ -383,6 +399,7 @@ function ProductForm({
 
   const [name, setName] = useState(initial?.name ?? "");
   const [price, setPrice] = useState<number>(initial?.price ?? 0);
+  const [originalPrice, setOriginalPrice] = useState<number | undefined>(initial?.original_price ?? undefined);
   const [category, setCategory] = useState(initial?.category ?? allCategories[0] ?? "");
   const [customCategory, setCustomCategory] = useState("");
   const [showCustomCat, setShowCustomCat] = useState(false);
@@ -458,6 +475,7 @@ function ProductForm({
       const payload: any = {
         name, price, category, materials, dimensions, story, badge,
         image: mainImageUrl, gallery, stock,
+        original_price: originalPrice || null,
       };
       if (isEdit && initial?.id) payload.id = initial.id;
       await onSave(payload, isEdit);
@@ -489,16 +507,21 @@ function ProductForm({
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">
             Basic Information
           </h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
             <div className="sm:col-span-2 space-y-2">
               <Label htmlFor="p-name">Product Name *</Label>
               <Input id="p-name" required placeholder="e.g. Kaira Round Floor Mat"
                 value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="p-price">Price (₹) *</Label>
+              <Label htmlFor="p-price">Selling Price (₹) *</Label>
               <Input id="p-price" type="number" required min={0} placeholder="7400"
                 value={price || ""} onChange={(e) => setPrice(Number(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="p-original-price">Original Price / MRP (₹)</Label>
+              <Input id="p-original-price" type="number" min={0} placeholder="11700"
+                value={originalPrice || ""} onChange={(e) => setOriginalPrice(e.target.value ? Number(e.target.value) : undefined)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="p-stock">Stock Quantity *</Label>
@@ -506,6 +529,12 @@ function ProductForm({
                 value={stock} onChange={(e) => setStock(Number(e.target.value))} />
             </div>
           </div>
+
+          {price > 0 && originalPrice && originalPrice > price && (
+            <div className="mt-4 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-emerald-500/20 p-2.5 rounded-lg border border-emerald-500/20 animate-in fade-in duration-300">
+              Calculated Discount: {formatPrice(originalPrice - price)} off ({Math.round(((originalPrice - price) / originalPrice) * 100)}% discount)
+            </div>
+          )}
 
           {/* Category */}
           <div className="mt-4 space-y-2">

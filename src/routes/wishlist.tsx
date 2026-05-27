@@ -100,9 +100,25 @@ function WishlistPage() {
                     >
                       {product.name}
                     </Link>
-                    <span className="font-medium text-foreground whitespace-nowrap">
-                      {formatPrice(product.price)}
-                    </span>
+                    {product.original_price && product.original_price > product.price ? (
+                      <div className="flex flex-col items-end whitespace-nowrap shrink-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-red-600 dark:text-red-400">
+                            {formatPrice(product.price)}
+                          </span>
+                          <span className="text-xs text-muted-foreground line-through decoration-muted-foreground">
+                            {formatPrice(product.original_price)}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                          ({Math.round(((product.original_price - product.price) / product.original_price) * 100)}% off)
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="font-medium text-foreground whitespace-nowrap">
+                        {formatPrice(product.price)}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs uppercase tracking-wider text-muted-foreground/80">
                     {product.category} · {product.materials}
