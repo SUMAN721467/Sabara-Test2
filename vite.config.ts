@@ -15,4 +15,9 @@ export default defineConfig({
     : {
         server: { entry: "server" },
       },
+  vite: {
+    build: {
+      chunkSizeWarningLimit: 2000,
+    },
+  },
 });
