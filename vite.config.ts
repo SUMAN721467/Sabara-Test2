@@ -6,11 +6,15 @@
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-// Conditionally configure TanStack Start server entry.
-// If VERCEL environment variable is present, we omit Cloudflare server entry redirects
-// so that Vinxi/Nitro builds for Vercel's Serverless environment.
+const isVercel = !!process.env.VERCEL;
+
+// On Vercel we must:
+//   1. Disable the Cloudflare vite-plugin so the build output targets Vercel, not Workers.
+//   2. Omit the Cloudflare server entry from TanStack Start config.
 export default defineConfig({
-  tanstackStart: process.env.VERCEL
+  // Disable Cloudflare plugin entirely when building on Vercel
+  cloudflare: isVercel ? false : undefined,
+  tanstackStart: isVercel
     ? {}
     : {
         server: { entry: "server" },
@@ -21,3 +25,4 @@ export default defineConfig({
     },
   },
 });
+
