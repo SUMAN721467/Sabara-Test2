@@ -11,11 +11,39 @@ import { ScrollReveal } from "@/components/ui/scroll-reveal";
 
 const getFeaturedProducts = createServerFn({ method: "GET" })
   .handler(async () => {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    const supabase = createClient(supabaseUrl!, supabaseKey!);
-    const list = await getOrSeedProducts(supabase);
-    return list.slice(0, 4);
+    try {
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const supabase = createClient(supabaseUrl!, supabaseKey!);
+      const list = await getOrSeedProducts(supabase, true);
+
+      const groups = new Map<string, any[]>();
+      list.forEach((p: any) => {
+        const baseName = p.name.split(" - ")[0];
+        if (!groups.has(baseName)) {
+          groups.set(baseName, []);
+        }
+        groups.get(baseName)!.push(p);
+      });
+
+      const featured = Array.from(groups.values()).map((all) => {
+        const sorted = [...all].sort((a, b) => {
+          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return aTime - bTime;
+        });
+        const main = sorted[0];
+        return {
+          ...main,
+          variants: sorted,
+        };
+      });
+
+      return featured.slice(0, 4);
+    } catch (err: any) {
+      console.error("[getFeaturedProducts ERROR]", err?.message, err?.stack);
+      return [];
+    }
   });
 
 const getHeroSettingsServer = createServerFn({ method: "GET" })
@@ -59,11 +87,16 @@ const getHeroSettingsServer = createServerFn({ method: "GET" })
 
 export const Route = createFileRoute("/")({
   loader: async () => {
-    const [featured, heroSettings] = await Promise.all([
-      getFeaturedProducts(),
-      getHeroSettingsServer(),
-    ]);
-    return { featured, heroSettings };
+    try {
+      const [featured, heroSettings] = await Promise.all([
+        getFeaturedProducts(),
+        getHeroSettingsServer(),
+      ]);
+      return { featured, heroSettings };
+    } catch (err: any) {
+      console.error("[Index loader ERROR]", err?.message, err?.stack);
+      return { featured: [], heroSettings: null };
+    }
   },
   component: Index,
   head: () => ({
@@ -171,7 +204,7 @@ function Index() {
         </ScrollReveal>
 
         <div className="mt-10 grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
-          {featured.map((p, i) => (
+          {featured.map((p: any, i: number) => (
             <ScrollReveal key={p.id} variant="fade-up" delay={i * 100} duration={700}>
               <ProductCard product={p} />
             </ScrollReveal>

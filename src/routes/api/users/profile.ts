@@ -69,6 +69,7 @@ export const Route = createFileRoute("/api/users/profile")({
             fullName: data.full_name,
             age: data.age,
             phone: data.phone,
+            avatarUrl: data.avatar_url,
             address: {
               street: data.street,
               city: data.city,
@@ -94,15 +95,33 @@ export const Route = createFileRoute("/api/users/profile")({
           }
 
           const body = await request.json();
-          const { fullName, age, phone, address } = body as {
+          const { fullName, age, phone, address, avatarUrl } = body as {
             fullName?: string;
             age?: string | number;
             phone?: string;
+            avatarUrl?: string | null;
             address?: { street?: string; city?: string; state?: string; zipCode?: string };
           };
 
           // Handle age string-to-number safe casting
           const parsedAge = age && age !== "" ? Number(age) : null;
+
+          // Fetch the existing profile to preserve avatar_url if not explicitly provided
+          let existingAvatarUrl = null;
+          try {
+            const { data: existing } = await supabase
+              .from("user_profiles")
+              .select("avatar_url")
+              .eq("id", userId)
+              .single();
+            if (existing) {
+              existingAvatarUrl = existing.avatar_url;
+            }
+          } catch (e) {
+            console.error("[profile POST] Error fetching existing avatar_url:", e);
+          }
+
+          const finalAvatarUrl = avatarUrl !== undefined ? avatarUrl : existingAvatarUrl;
 
           const { data, error } = await supabase
             .from("user_profiles")
@@ -116,6 +135,7 @@ export const Route = createFileRoute("/api/users/profile")({
                 city: address?.city ?? null,
                 state: address?.state ?? null,
                 zip_code: address?.zipCode ?? null,
+                avatar_url: finalAvatarUrl,
               },
               { onConflict: "id" },
             )
@@ -131,6 +151,7 @@ export const Route = createFileRoute("/api/users/profile")({
             fullName: data.full_name,
             age: data.age,
             phone: data.phone,
+            avatarUrl: data.avatar_url,
             address: {
               street: data.street,
               city: data.city,

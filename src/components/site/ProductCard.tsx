@@ -52,8 +52,35 @@ export function ProductCard({ product }: { product: Product }) {
           <Heart className={cn("h-4 w-4", isWishlisted && "fill-current")} />
         </button>
       </div>
+
+      {/* Variant Indicators */}
+      {(product as any).variants && (product as any).variants.length > 1 && (
+        <div className="mt-2.5 flex flex-wrap gap-1.5 px-1" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+          {(product as any).variants.map((v: any) => {
+            const variantColor = v.name.split(" - ")[1] || "Default";
+            const isSelected = v.id === product.id;
+            return (
+              <Link
+                key={v.id}
+                to="/product/$id"
+                params={{ id: v.id }}
+                className={cn(
+                  "relative h-6 w-6 rounded-full overflow-hidden border-2 transition-all hover:scale-110",
+                  isSelected ? "border-primary scale-105" : "border-transparent opacity-75 hover:opacity-100"
+                )}
+                title={variantColor}
+              >
+                <img src={v.image} alt={variantColor} className="h-full w-full object-cover" />
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
       <div className="mt-3 flex items-baseline justify-between gap-3 px-1">
-        <h3 className="font-serif text-lg leading-tight text-foreground transition-colors group-hover:text-primary duration-300">{product.name}</h3>
+        <h3 className="font-serif text-lg leading-tight text-foreground transition-colors group-hover:text-primary duration-300">
+          {product.name.split(" - ")[0]}
+        </h3>
         {product.original_price && product.original_price > product.price ? (
           <div className="flex flex-col items-end shrink-0">
             <div className="flex items-center gap-1.5">

@@ -35,6 +35,30 @@ async function fetchProducts(params: { q?: string; category?: string }): Promise
   return data.products;
 }
 
+function groupProducts(list: Product[]): Product[] {
+  const groups = new Map<string, Product[]>();
+  list.forEach((p) => {
+    const baseName = p.name.split(" - ")[0];
+    if (!groups.has(baseName)) {
+      groups.set(baseName, []);
+    }
+    groups.get(baseName)!.push(p);
+  });
+
+  return Array.from(groups.values()).map((all) => {
+    const sorted = [...all].sort((a, b) => {
+      const aTime = (a as any).created_at ? new Date((a as any).created_at).getTime() : 0;
+      const bTime = (b as any).created_at ? new Date((b as any).created_at).getTime() : 0;
+      return aTime - bTime;
+    });
+    const main = sorted[0];
+    return {
+      ...main,
+      variants: sorted,
+    };
+  }) as Product[];
+}
+
 function Shop() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
@@ -66,12 +90,12 @@ function Shop() {
             p.category.toLowerCase().includes(q),
         );
       }
-      return list;
+      return groupProducts(list);
     },
   });
 
   const visible = useMemo(() => {
-    const list = data ?? [];
+    const list = groupProducts(data ?? []);
     if (sort === "low") return [...list].sort((a, b) => a.price - b.price);
     if (sort === "high") return [...list].sort((a, b) => b.price - a.price);
     return list;

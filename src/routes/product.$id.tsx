@@ -13,20 +13,54 @@ import { createClient } from "@supabase/supabase-js";
 import { getOrSeedProducts } from "./api/products";
 
 const getProductDetails = createServerFn({ method: "GET" })
-  .handler(async ({ data: id }: { data: string }) => {
+  .handler(async ({ data: id }: any) => {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
     const supabase = createClient(supabaseUrl!, supabaseKey!);
-    const list = await getOrSeedProducts(supabase);
+    const list = await getOrSeedProducts(supabase, true);
     const product = list.find((p: any) => p.id === id);
     if (!product) return null;
-    const related = list.filter((x: any) => x.id !== id && x.category === product.category).slice(0, 3);
-    return { product, related };
+
+    const baseName = product.name.split(" - ")[0];
+    const variants = list
+      .filter((p: any) => p.name.split(" - ")[0] === baseName)
+      .sort((a: any, b: any) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return aTime - bTime;
+      });
+
+    // Group related products by base name (excluding variants of current product)
+    const otherProducts = list.filter((x: any) => x.name.split(" - ")[0] !== baseName && x.category === product.category);
+    const relatedGroups = new Map<string, any[]>();
+    otherProducts.forEach((p: any) => {
+      const bName = p.name.split(" - ")[0];
+      if (!relatedGroups.has(bName)) {
+        relatedGroups.set(bName, []);
+      }
+      relatedGroups.get(bName)!.push(p);
+    });
+    const related = Array.from(relatedGroups.values())
+      .map((all) => {
+        const sorted = [...all].sort((a, b) => {
+          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return aTime - bTime;
+        });
+        const main = sorted[0];
+        return {
+          ...main,
+          variants: sorted,
+        };
+      })
+      .slice(0, 3);
+
+    return { product, related, variants };
   });
 
 export const Route = createFileRoute("/product/$id")({
   loader: async ({ params }) => {
-    const data = await getProductDetails({ data: params.id });
+    const data = await (getProductDetails as any)({ data: params.id });
     if (!data || !data.product) throw notFound();
     return data;
   },
@@ -153,7 +187,7 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
 }
 
 function ProductPage() {
-  const { product, related } = Route.useLoaderData();
+  const { product, related, variants } = Route.useLoaderData();
   const { add } = useCart();
   const { toggle: toggleWishlist, has: hasWishlist } = useWishlist();
   const isWishlisted = hasWishlist(product.id);
@@ -221,7 +255,7 @@ function ProductPage() {
             {product.category}
           </span>
           <h1 className="mt-3 font-serif text-4xl leading-tight text-foreground md:text-5xl">
-            {product.name}
+            {product.name.split(" - ")[0]}
           </h1>
           {product.original_price && product.original_price > product.price ? (
             <div className="mt-3 flex items-center gap-3">
@@ -240,6 +274,42 @@ function ProductPage() {
           )}
 
           <p className="mt-6 leading-relaxed text-foreground/80">{product.story}</p>
+
+          {/* Variety Selector */}
+          {variants && variants.length > 1 && (
+            <div className="mt-6 border-t border-border/60 pt-5">
+              <span className="text-sm font-semibold text-foreground">
+                Variety: <span className="font-normal text-muted-foreground">{product.name.split(" - ")[1] || "Default"}</span>
+              </span>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {variants.map((v: any) => {
+                  const isSelected = v.id === product.id;
+                  const vColor = v.name.split(" - ")[1] || "Default";
+                  return (
+                    <Link
+                      key={v.id}
+                      to="/product/$id"
+                      params={{ id: v.id }}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 rounded-xl border p-2 text-center bg-card transition-all hover:border-primary cursor-pointer w-24 sm:w-28",
+                        isSelected
+                          ? "border-primary ring-2 ring-primary/20 scale-[1.02]"
+                          : "border-border/60 opacity-85 hover:opacity-100"
+                      )}
+                    >
+                      <div className="h-16 w-full rounded-lg overflow-hidden bg-secondary/50">
+                        <img src={v.image} alt={vColor} className="h-full w-full object-cover" />
+                      </div>
+                      <div className="text-[11px] font-medium truncate w-full text-foreground/90">{vColor}</div>
+                      <div className="text-[10px] font-semibold text-muted-foreground whitespace-nowrap">
+                        {formatPrice(v.price)}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <dl className="mt-8 grid grid-cols-2 gap-y-3 border-y border-border/60 py-5 text-sm">
             <dt className="text-muted-foreground">Materials</dt>
@@ -308,7 +378,7 @@ function ProductPage() {
         <section className="mt-24">
           <h2 className="font-serif text-2xl text-foreground md:text-3xl">You might also like</h2>
           <div className="mt-8 grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
-            {related.map((p: Product) => (
+            {related.map((p: any) => (
               <ProductCard key={p.id} product={p} />
             ))}
           </div>

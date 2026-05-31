@@ -17,6 +17,7 @@ import { AuthProvider } from "@/lib/auth";
 import { Navbar } from "@/components/site/Navbar";
 import { Footer } from "@/components/site/Footer";
 import { Toaster } from "@/components/ui/sonner";
+import { AnnouncementBar } from "@/components/site/AnnouncementBar";
 
 function NotFoundComponent() {
   return (
@@ -128,6 +129,7 @@ function RootComponent() {
         <CartProvider>
           <WishlistProvider>
             <div className="flex min-h-screen flex-col">
+              <AnnouncementBar />
               <Navbar />
               <main className="flex-1 overflow-x-hidden">
                 <div key={location.pathname} className="animate-page-enter">

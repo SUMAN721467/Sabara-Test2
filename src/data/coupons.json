@@ -13,6 +13,12 @@
       "limit": 0,
       "discount": 50,
       "minOrder": 1999
+    },
+    {
+      "code": "LALI",
+      "discount": 50,
+      "minOrder": 999,
+      "limit": 1
     }
   ]
 }

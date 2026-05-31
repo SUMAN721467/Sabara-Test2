@@ -10,7 +10,7 @@ function getServerSupabase() {
   return createClient(supabaseUrl, supabaseKey);
 }
 
-export async function getOrSeedProducts(supabase: any) {
+export async function getOrSeedProducts(supabase: any, filterHidden = false) {
   try {
     const { data, error } = await supabase
       .from("products")
@@ -22,7 +22,37 @@ export async function getOrSeedProducts(supabase: any) {
       return [];
     }
 
-    return data || [];
+    let list = data || [];
+
+    if (filterHidden) {
+      try {
+        const { data: settingData } = await supabase
+          .from("site_settings")
+          .select("value")
+          .eq("key", "visibility")
+          .single();
+        
+        if (settingData?.value) {
+          const hiddenProducts = settingData.value.hiddenProducts || [];
+          const hiddenVarieties = settingData.value.hiddenVarieties || [];
+          
+          list = list.filter((p: any) => {
+            const baseName = p.name.split(" - ")[0].trim();
+            if (hiddenProducts.includes(baseName)) {
+              return false;
+            }
+            if (hiddenVarieties.includes(p.id)) {
+              return false;
+            }
+            return true;
+          });
+        }
+      } catch (err) {
+        console.warn("[getOrSeedProducts] failed to apply visibility filter:", err);
+      }
+    }
+
+    return list;
   } catch (e: any) {
     console.error("[getOrSeedProducts] Try-catch error:", e);
     return [];
@@ -39,7 +69,7 @@ export const Route = createFileRoute("/api/products")({
           const category = url.searchParams.get("category") ?? "";
 
           const supabase = getServerSupabase();
-          const dbProducts = await getOrSeedProducts(supabase);
+          const dbProducts = await getOrSeedProducts(supabase, true);
 
           let list = dbProducts;
           if (category && category !== "All") {

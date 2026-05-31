@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect, useRef, type FormEvent } from "react";
-import { useHeroSettings } from "@/lib/settings";
+import { useState, useEffect, useRef, type FormEvent, Fragment } from "react";
+import { useHeroSettings, usePromoSettings } from "@/lib/settings";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -17,8 +17,10 @@ import { formatPrice } from "@/lib/cart";
 import {
   ShieldX, Plus, X, Upload, ImagePlus, Loader2, ArrowLeft,
   DollarSign, ShoppingBag, Users, Layers, Search, MapPin, ClipboardList,
-  ShoppingCart, Heart, Calendar, Activity, Info, LogIn, Mail, Phone, User
+  ShoppingCart, Heart, Calendar, Activity, Info, LogIn, Mail, Phone, User,
+  ChevronDown, ChevronUp
 } from "lucide-react";
+import { ArrowUp, ArrowDown, Trash2, Edit, Check } from "lucide-react";
 
 export const Route = createFileRoute("/admin")({ component: AdminPage });
 
@@ -160,7 +162,7 @@ function AdminPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:py-16 sm:px-6">
       <div className="flex flex-col gap-2 mb-10">
         <h1 className="font-serif text-4xl">Admin Dashboard</h1>
         <p className="text-muted-foreground">Manage your catalog, fulfill orders, and view customer summaries.</p>
@@ -181,13 +183,16 @@ function AdminPage() {
       </div>
 
       <Tabs defaultValue="products" className="w-full">
-        <TabsList className="mb-8">
-          <TabsTrigger value="products">Products ({products.length})</TabsTrigger>
-          <TabsTrigger value="orders">Orders ({orders.length})</TabsTrigger>
-          <TabsTrigger value="customers">Customers ({customers.length})</TabsTrigger>
-          <TabsTrigger value="coupons">Coupons</TabsTrigger>
-          <TabsTrigger value="hero">Hero Settings</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-none">
+          <TabsList className="flex w-max min-w-full justify-start gap-1 mb-8">
+            <TabsTrigger value="products">Products ({products.length})</TabsTrigger>
+            <TabsTrigger value="orders">Orders ({orders.length})</TabsTrigger>
+            <TabsTrigger value="customers">Customers ({customers.length})</TabsTrigger>
+            <TabsTrigger value="coupons">Coupons</TabsTrigger>
+            <TabsTrigger value="hero">Hero Settings</TabsTrigger>
+            <TabsTrigger value="promotions">Promotions</TabsTrigger>
+          </TabsList>
+        </div>
         <TabsContent value="products">
           <ProductsAdmin initialProducts={products} onRefresh={fetchDashboardData} />
         </TabsContent>
@@ -202,6 +207,9 @@ function AdminPage() {
         </TabsContent>
         <TabsContent value="hero">
           <HeroAdmin />
+        </TabsContent>
+        <TabsContent value="promotions">
+          <PromotionsAdmin />
         </TabsContent>
       </Tabs>
     </div>
@@ -218,20 +226,179 @@ function ProductsAdmin({ initialProducts, onRefresh }: { initialProducts: any[],
   const [products, setProducts] = useState<any[]>(initialProducts);
   const [mode, setMode] = useState<FormMode>("list");
   const [editTarget, setEditTarget] = useState<any | null>(null);
+  const [prefillTarget, setPrefillTarget] = useState<any | null>(null);
 
   useEffect(() => { setProducts(initialProducts); }, [initialProducts]);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this product?")) return;
-    const headers = await getAuthHeaders();
-    await fetch(`/api/admin/products?id=${id}`, { method: "DELETE", headers });
-    toast.success("Product deleted");
-    await onRefresh();
+  const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
+
+  const [visibilitySettings, setVisibilitySettings] = useState<{
+    hiddenProducts: string[];
+    hiddenVarieties: string[];
+  }>({ hiddenProducts: [], hiddenVarieties: [] });
+
+  const fetchVisibility = async () => {
+    try {
+      const res = await fetch("/api/site-settings?key=visibility");
+      const json = await res.json();
+      if (json.success && json.value) {
+        setVisibilitySettings({
+          hiddenProducts: json.value.hiddenProducts || [],
+          hiddenVarieties: json.value.hiddenVarieties || [],
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch visibility:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchVisibility();
+  }, []);
+
+  const saveVisibility = async (newSettings: typeof visibilitySettings) => {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/admin/site-settings", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          key: "visibility",
+          value: newSettings,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to save visibility");
+      setVisibilitySettings(newSettings);
+      toast.success("Visibility settings updated!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update visibility");
+    }
+  };
+
+  const toggleProductExpand = (baseName: string) => {
+    setExpandedProducts((prev) => ({
+      ...prev,
+      [baseName]: !prev[baseName],
+    }));
+  };
+
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteSingle = async (prod: any) => {
+    setDeleting(true);
+    try {
+      const headers = await getAuthHeaders();
+      await fetch(`/api/admin/products?id=${prod.id}`, { method: "DELETE", headers });
+      toast.success(`Variety "${prod.name.split(" - ")[1] || "Main"}" deleted successfully`);
+      
+      // If we are editing this deleted product, go back to list
+      if (editTarget?.id === prod.id || prefillTarget?.id === prod.id) {
+        setMode("list");
+        setEditTarget(null);
+        setPrefillTarget(null);
+      }
+      
+      setDeleteTarget(null);
+      await onRefresh();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete product");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteAll = async (prod: any) => {
+    setDeleting(true);
+    try {
+      const headers = await getAuthHeaders();
+      const baseName = prod.name.split(" - ")[0];
+      const siblings = products.filter((p) => p.name.split(" - ")[0] === baseName);
+      
+      for (const sib of siblings) {
+        await fetch(`/api/admin/products?id=${sib.id}`, { method: "DELETE", headers });
+      }
+      
+      toast.success(`Product "${baseName}" and all its ${siblings.length} varieties deleted`);
+      
+      const siblingIds = new Set(siblings.map(s => s.id));
+      if ((editTarget && siblingIds.has(editTarget.id)) || (prefillTarget && siblingIds.has(prefillTarget.id))) {
+        setMode("list");
+        setEditTarget(null);
+        setPrefillTarget(null);
+      }
+
+      setDeleteTarget(null);
+      await onRefresh();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete group");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDelete = async (id: string): Promise<boolean> => {
+    const prod = products.find((p) => p.id === id);
+    if (!prod) return false;
+
+    const baseName = prod.name.split(" - ")[0];
+    const siblings = products.filter((p) => p.name.split(" - ")[0] === baseName);
+
+    if (siblings.length <= 1) {
+      if (!confirm(`Are you sure you want to delete "${prod.name}"?`)) return false;
+      setDeleting(true);
+      try {
+        const headers = await getAuthHeaders();
+        await fetch(`/api/admin/products?id=${id}`, { method: "DELETE", headers });
+        toast.success("Product deleted");
+        await onRefresh();
+        return true;
+      } catch (e) {
+        toast.error("Failed to delete product");
+        return false;
+      } finally {
+        setDeleting(false);
+      }
+    } else {
+      setDeleteTarget(prod);
+      return false;
+    }
   };
 
   const handleSave = async (data: any, isEdit: boolean) => {
     try {
       const headers = await getAuthHeaders();
+      
+      // If we are editing, check if the base name was changed.
+      // If the base name changed, rename all sibling varieties to keep the group intact.
+      if (isEdit && editTarget) {
+        const oldName = editTarget.name || "";
+        const oldBase = oldName.split(" - ")[0];
+        const newBase = data.name.split(" - ")[0];
+        if (oldBase && newBase && oldBase.trim() !== newBase.trim()) {
+          const siblings = products.filter(
+            (p) => p.id !== data.id && p.name.split(" - ")[0] === oldBase
+          );
+          for (const sib of siblings) {
+            const sibColor = sib.name.split(" - ")[1];
+            const sibNewName = sibColor ? `${newBase.trim()} - ${sibColor}` : newBase.trim();
+            try {
+              await fetch("/api/admin/products", {
+                method: "PUT",
+                headers,
+                body: JSON.stringify({
+                  ...sib,
+                  name: sibNewName,
+                }),
+              });
+            } catch (err) {
+              console.error(`Failed to rename sibling variety ${sib.id}:`, err);
+            }
+          }
+        }
+      }
+
       const res = await fetch("/api/admin/products", {
         method: isEdit ? "PUT" : "POST",
         headers,
@@ -252,6 +419,7 @@ function ProductsAdmin({ initialProducts, onRefresh }: { initialProducts: any[],
       toast.success(isEdit ? "Product updated!" : "Product added!");
       setMode("list");
       setEditTarget(null);
+      setPrefillTarget(null);
       await onRefresh();
     } catch (err: any) {
       console.error("Save catch error:", err);
@@ -262,13 +430,32 @@ function ProductsAdmin({ initialProducts, onRefresh }: { initialProducts: any[],
 
   /* ── Inline add / edit form ──────────────────────────────────────────────── */
   if (mode === "add" || mode === "edit") {
+    const activeId = mode === "edit" ? editTarget?.id : prefillTarget?.id;
     return (
       <ProductForm
-        initial={editTarget}
+        key={activeId || "new-product"}
+        initial={mode === "edit" ? editTarget : prefillTarget}
         isEdit={mode === "edit"}
         onSave={handleSave}
-        onCancel={() => { setMode("list"); setEditTarget(null); }}
+        onCancel={() => { setMode("list"); setEditTarget(null); setPrefillTarget(null); }}
         existingCategories={[...new Set(products.map((p) => p.category))]}
+        products={products}
+        onEditProduct={(prod) => {
+          setEditTarget(prod);
+          setMode("edit");
+        }}
+        onDeleteProduct={async (id) => {
+          await handleDelete(id);
+          if (activeId === id) {
+            setMode("list");
+            setEditTarget(null);
+            setPrefillTarget(null);
+          }
+        }}
+        onAddVariety={(baseProduct) => {
+          setPrefillTarget(baseProduct);
+          setMode("add");
+        }}
       />
     );
   }
@@ -276,14 +463,14 @@ function ProductsAdmin({ initialProducts, onRefresh }: { initialProducts: any[],
   /* ── Product list ────────────────────────────────────────────────────────── */
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
         <div>
           <h2 className="text-xl font-medium">Manage Products</h2>
           <p className="text-sm text-muted-foreground mt-1">
             {products.length} product{products.length !== 1 ? "s" : ""} total
           </p>
         </div>
-        <Button onClick={() => setMode("add")}>
+        <Button onClick={() => setMode("add")} className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" /> Add Product
         </Button>
       </div>
@@ -292,88 +479,372 @@ function ProductsAdmin({ initialProducts, onRefresh }: { initialProducts: any[],
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[40px]"></TableHead>
               <TableHead>Image</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Price</TableHead>
               <TableHead>Stock</TableHead>
               <TableHead>Badge</TableHead>
+              <TableHead>Display</TableHead>
+              <TableHead>Varieties</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {products.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell>
-                  <img src={p.image} alt={p.name} className="h-10 w-10 rounded object-cover" />
-                </TableCell>
-                <TableCell className="font-medium">{p.name}</TableCell>
-                <TableCell>
-                  <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">
-                    {p.category}
-                  </span>
-                </TableCell>
-                <TableCell>
-                  {p.original_price && p.original_price > p.price ? (
-                    <div className="space-y-0.5">
-                      <div className="font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
-                        {formatPrice(p.price)}
-                      </div>
-                      <div className="text-xs text-muted-foreground line-through whitespace-nowrap">
-                        {formatPrice(p.original_price)}
-                      </div>
-                      <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">
-                        {Math.round(((p.original_price - p.price) / p.original_price) * 100)}% off
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="font-medium text-foreground">{formatPrice(p.price)}</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {p.stock !== undefined && p.stock !== null ? (
-                    p.stock <= 3 ? (
-                      <span className="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-700 dark:text-red-300">
-                        {p.stock} Low
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-xs font-semibold text-green-700 dark:text-green-300">
-                        {p.stock} units
-                      </span>
-                    )
-                  ) : (
-                    <span className="inline-flex items-center rounded-full bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 text-xs font-semibold text-yellow-700 dark:text-yellow-300">
-                      10 units
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {p.badge ? (
-                    <span className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                      {p.badge}
-                    </span>
-                  ) : "—"}
-                </TableCell>
-                <TableCell className="text-right space-x-1">
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => { setEditTarget(p); setMode("edit"); }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost" size="sm"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => handleDelete(p.id)}
-                  >
-                    Delete
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
+            {(() => {
+              // Group products by base name
+              const groups = new Map<string, any[]>();
+              products.forEach((p) => {
+                const base = (p.name || "").split(" - ")[0].trim();
+                if (!base) return;
+                if (!groups.has(base)) {
+                  groups.set(base, []);
+                }
+                groups.get(base)!.push(p);
+              });
+
+              if (groups.size === 0) {
+                return (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                      No products found. Add one above!
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+
+              return Array.from(groups.entries()).map(([baseName, group]) => {
+                const sortedGroup = [...group].sort((a, b) => {
+                  const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+                  const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                  return aTime - bTime;
+                });
+                
+                const mainProduct = sortedGroup[0];
+                if (!mainProduct) return null;
+
+                const totalStock = sortedGroup.reduce((sum, item) => sum + (item.stock || 0), 0);
+                const prices = sortedGroup.map(item => Number(item.price) || 0);
+                const minPrice = Math.min(...prices);
+                const maxPrice = Math.max(...prices);
+                const priceDisplay = minPrice === maxPrice 
+                  ? formatPrice(minPrice) 
+                  : `${formatPrice(minPrice)} - ${formatPrice(maxPrice)}`;
+
+                const isExpanded = !!expandedProducts[baseName];
+                const isProductVisible = !visibilitySettings.hiddenProducts.includes(baseName);
+
+                return (
+                  <Fragment key={baseName}>
+                    <TableRow className="hover:bg-muted/30">
+                      <TableCell className="w-[40px] p-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleProductExpand(baseName)}
+                          className="p-1 rounded hover:bg-secondary transition-colors cursor-pointer"
+                          title={isExpanded ? "Collapse varieties" : "Expand varieties"}
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </button>
+                      </TableCell>
+                      <TableCell 
+                        className="cursor-pointer" 
+                        onClick={() => toggleProductExpand(baseName)}
+                      >
+                        <img src={mainProduct.image} alt={baseName} className="h-10 w-10 rounded object-cover bg-secondary" />
+                      </TableCell>
+                      <TableCell 
+                        className="font-medium cursor-pointer"
+                        onClick={() => toggleProductExpand(baseName)}
+                      >
+                        <div className="font-semibold text-foreground text-sm sm:text-base">{baseName}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {sortedGroup.length} variety{sortedGroup.length !== 1 ? "ies" : ""}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground">
+                          {mainProduct.category}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-medium font-mono text-sm">
+                        {priceDisplay}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                          totalStock <= 3 
+                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" 
+                            : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        }`}>
+                          {totalStock} units total
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {mainProduct.badge ? (
+                          <span className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                            {mainProduct.badge}
+                          </span>
+                        ) : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const updatedHidden = isProductVisible
+                              ? [...visibilitySettings.hiddenProducts, baseName]
+                              : visibilitySettings.hiddenProducts.filter((b) => b !== baseName);
+                            
+                            const newSettings = {
+                              ...visibilitySettings,
+                              hiddenProducts: updatedHidden,
+                            };
+                            await saveVisibility(newSettings);
+                          }}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                            isProductVisible ? "bg-primary" : "bg-secondary"
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${
+                              isProductVisible ? "translate-x-5" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => toggleProductExpand(baseName)}
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium cursor-pointer"
+                        >
+                          {isExpanded ? "Hide varieties" : `Show ${sortedGroup.length} varieties`}
+                          {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => { setEditTarget(mainProduct); setMode("edit"); }}
+                            className="h-8 px-2 text-xs cursor-pointer"
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost" 
+                            size="sm"
+                            className="h-8 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                            onClick={() => handleDelete(mainProduct.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Collapsible varieties list dropdown */}
+                    {isExpanded && (
+                      <TableRow className="bg-muted/10 border-l-2 border-l-primary/40 dark:bg-muted/5 transition-colors">
+                        <TableCell colSpan={10} className="p-4 sm:p-6">
+                          <div className="rounded-xl border bg-background/50 p-4 space-y-4">
+                            <div className="flex items-center justify-between border-b pb-3">
+                              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Varieties of {baseName}
+                              </h4>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 rounded-md px-2 text-xs font-medium border-dashed cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                                onClick={() => {
+                                  setPrefillTarget(mainProduct);
+                                  setMode("add");
+                                }}
+                              >
+                                <Plus className="h-3 w-3 mr-1" /> Add Variety
+                              </Button>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader className="bg-muted/20">
+                                  <TableRow>
+                                    <TableHead className="py-2 text-[11px] font-semibold">Image</TableHead>
+                                    <TableHead className="py-2 text-[11px] font-semibold">Variety / Color</TableHead>
+                                    <TableHead className="py-2 text-[11px] font-semibold">Price</TableHead>
+                                    <TableHead className="py-2 text-[11px] font-semibold">Stock</TableHead>
+                                    <TableHead className="py-2 text-[11px] font-semibold">Display</TableHead>
+                                    <TableHead className="py-2 text-[11px] font-semibold text-right">Actions</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {sortedGroup.slice(1).length === 0 ? (
+                                    <TableRow>
+                                      <TableCell colSpan={6} className="text-center py-6 text-xs text-muted-foreground">
+                                        No other varieties added yet.
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : (
+                                    sortedGroup.slice(1).map((v) => {
+                                      const vLabel = v.name.split(" - ")[1] || "Default";
+                                      const isVarietyVisible = !visibilitySettings.hiddenVarieties.includes(v.id);
+                                      return (
+                                        <TableRow key={v.id} className="hover:bg-muted/10">
+                                          <TableCell className="py-2">
+                                            <img src={v.image} alt={vLabel} className="h-8 w-8 rounded object-cover bg-secondary" />
+                                          </TableCell>
+                                          <TableCell className="py-2 font-medium text-xs">
+                                            {vLabel}
+                                          </TableCell>
+                                          <TableCell className="py-2 font-mono text-xs">
+                                            {v.original_price && v.original_price > v.price ? (
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="font-semibold text-red-600 dark:text-red-400">{formatPrice(v.price)}</span>
+                                                <span className="text-[10px] text-muted-foreground line-through">{formatPrice(v.original_price)}</span>
+                                              </div>
+                                            ) : (
+                                              formatPrice(v.price)
+                                            )}
+                                          </TableCell>
+                                          <TableCell className="py-2 text-xs">
+                                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                              v.stock <= 3 
+                                                ? "bg-red-500/10 text-red-600" 
+                                                : "bg-green-500/10 text-green-600"
+                                            }`}>
+                                              {v.stock} units
+                                            </span>
+                                          </TableCell>
+                                          <TableCell className="py-2">
+                                            <button
+                                              type="button"
+                                              onClick={async () => {
+                                                const updatedHidden = isVarietyVisible
+                                                  ? [...visibilitySettings.hiddenVarieties, v.id]
+                                                  : visibilitySettings.hiddenVarieties.filter((vid) => vid !== v.id);
+                                                
+                                                const newSettings = {
+                                                  ...visibilitySettings,
+                                                  hiddenVarieties: updatedHidden,
+                                                };
+                                                await saveVisibility(newSettings);
+                                              }}
+                                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 ${
+                                                isVarietyVisible ? "bg-primary" : "bg-secondary"
+                                              }`}
+                                            >
+                                              <span
+                                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${
+                                                  isVarietyVisible ? "translate-x-4" : "translate-x-0"
+                                                }`}
+                                              />
+                                            </button>
+                                          </TableCell>
+                                          <TableCell className="py-2 text-right">
+                                            <div className="flex justify-end gap-1">
+                                              <Button
+                                                variant="ghost" 
+                                                size="sm"
+                                                className="h-7 px-2 text-xs cursor-pointer hover:bg-secondary"
+                                                onClick={() => {
+                                                  setEditTarget(v);
+                                                  setMode("edit");
+                                                }}
+                                              >
+                                                Edit
+                                              </Button>
+                                              <Button
+                                                variant="ghost" 
+                                                size="sm"
+                                                className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                                                onClick={async () => {
+                                                  const label = v.name.split(" - ")[1] || "Default";
+                                                  if (confirm(`Are you sure you want to delete variety "${label}" of "${baseName}"?`)) {
+                                                    await handleDeleteSingle(v);
+                                                  }
+                                                }}
+                                              >
+                                                Delete
+                                              </Button>
+                                            </div>
+                                          </TableCell>
+                                        </TableRow>
+                                      );
+                                    })
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              });
+            })()}
           </TableBody>
         </Table>
       </div>
+
+      {/* Custom Deletion Dialog Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md rounded-2xl border bg-card p-6 shadow-lg animate-in zoom-in-95 duration-200">
+            <h3 className="font-serif text-2xl text-foreground mb-2">Delete Product</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              You are deleting <span className="font-semibold text-foreground">"{deleteTarget.name}"</span>. 
+              This product belongs to a variety group with other items sharing the same base name.
+            </p>
+
+            <div className="space-y-3 mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={deleting}
+                onClick={() => handleDeleteSingle(deleteTarget)}
+                className="w-full justify-start text-left py-6 h-auto cursor-pointer border-destructive/20 hover:border-destructive hover:bg-destructive/5"
+              >
+                <div>
+                  <div className="font-semibold text-destructive">Delete Only This Variety</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Removes only "{deleteTarget.name.split(" - ")[1] || "Main"}". The other varieties will remain untouched.
+                  </div>
+                </div>
+              </Button>
+
+              <Button
+                type="button"
+                disabled={deleting}
+                onClick={() => handleDeleteAll(deleteTarget)}
+                className="w-full justify-start text-left py-6 h-auto cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                <div>
+                  <div className="font-semibold">Delete Entire Product Group</div>
+                  <div className="text-xs text-destructive-foreground/80 mt-0.5">
+                    Removes this product and all other varieties sharing the base name "{deleteTarget.name.split(" - ")[0]}".
+                  </div>
+                </div>
+              </Button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="w-full rounded-full cursor-pointer mt-2"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -388,16 +859,34 @@ function ProductForm({
   onSave,
   onCancel,
   existingCategories,
+  products = [],
+  onEditProduct,
+  onDeleteProduct,
+  onAddVariety,
 }: {
   initial: any | null;
   isEdit: boolean;
   onSave: (data: any, isEdit: boolean) => Promise<void>;
   onCancel: () => void;
   existingCategories: string[];
+  products?: any[];
+  onEditProduct?: (prod: any) => void;
+  onDeleteProduct?: (id: string) => Promise<void>;
+  onAddVariety?: (baseProd: any) => void;
 }) {
   const allCategories = [...new Set([...defaultCategories, ...existingCategories])];
 
-  const [name, setName] = useState(initial?.name ?? "");
+  const [baseName, setBaseName] = useState(() => {
+    const parts = (initial?.name ?? "").split(" - ");
+    return parts[0];
+  });
+  const [color, setColor] = useState(() => {
+    if (isEdit) {
+      const parts = (initial?.name ?? "").split(" - ");
+      return parts[1] ?? "";
+    }
+    return "";
+  });
   const [price, setPrice] = useState<number>(initial?.price ?? 0);
   const [originalPrice, setOriginalPrice] = useState<number | undefined>(initial?.original_price ?? undefined);
   const [category, setCategory] = useState(initial?.category ?? allCategories[0] ?? "");
@@ -417,6 +906,31 @@ function ProductForm({
 
   const mainFileRef = useRef<HTMLInputElement>(null);
   const galleryFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const parts = (initial?.name ?? "").split(" - ");
+    setBaseName(parts[0] || "");
+    
+    if (isEdit) {
+      setColor(parts[1] ?? "");
+    } else {
+      setColor("");
+    }
+    
+    setPrice(initial?.price ?? 0);
+    setOriginalPrice(initial?.original_price ?? undefined);
+    setCategory(initial?.category ?? defaultCategories[0] ?? "");
+    setCustomCategory("");
+    setShowCustomCat(false);
+    setMaterials(initial?.materials ?? "");
+    setDimensions(initial?.dimensions ?? "");
+    setStory(initial?.story ?? "");
+    setBadge(initial?.badge ?? "");
+    setStock(initial?.stock ?? 10);
+    setMainImageUrl(initial?.image ?? "");
+    setGalleryUrls(initial?.gallery ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, isEdit]);
 
   /* ── Image upload handlers ───────────────────────────────────────────────── */
   const handleMainUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -472,8 +986,9 @@ function ProductForm({
     setBusy(true);
     try {
       const gallery = galleryUrls.length > 0 ? galleryUrls : [mainImageUrl];
+      const fullName = color.trim() ? `${baseName.trim()} - ${color.trim()}` : baseName.trim();
       const payload: any = {
-        name, price, category, materials, dimensions, story, badge,
+        name: fullName, price, category, materials, dimensions, story, badge,
         image: mainImageUrl, gallery, stock,
         original_price: originalPrice || null,
       };
@@ -510,8 +1025,8 @@ function ProductForm({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
             <div className="sm:col-span-2 space-y-2">
               <Label htmlFor="p-name">Product Name *</Label>
-              <Input id="p-name" required placeholder="e.g. Kaira Round Floor Mat"
-                value={name} onChange={(e) => setName(e.target.value)} />
+              <Input id="p-name" required placeholder="e.g. Asha Yoga Mat"
+                value={baseName} onChange={(e) => setBaseName(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="p-price">Selling Price (₹) *</Label>
@@ -581,11 +1096,18 @@ function ProductForm({
             )}
           </div>
 
-          {/* Badge */}
-          <div className="mt-4 space-y-2">
-            <Label htmlFor="p-badge">Badge / Tag (optional)</Label>
-            <Input id="p-badge" placeholder="e.g. Handwoven, Set of 4"
-              value={badge} onChange={(e) => setBadge(e.target.value)} />
+          {/* Badge & Variety */}
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="p-badge">Badge / Tag (optional)</Label>
+              <Input id="p-badge" placeholder="e.g. Handwoven, Set of 4"
+                value={badge} onChange={(e) => setBadge(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="p-variety">Product Variety (optional)</Label>
+              <Input id="p-variety" placeholder="e.g. Green, Blue, Large, Round"
+                value={color} onChange={(e) => setColor(e.target.value)} />
+            </div>
           </div>
         </section>
 
@@ -683,6 +1205,124 @@ function ProductForm({
             <input ref={galleryFileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleGalleryUpload} />
           </div>
         </section>
+
+        {/* ── Section 4: Varieties (Only shown when editing an existing product) ── */}
+        {isEdit && initial && (
+          <section className="border-t pt-8">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Product Varieties
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Varieties of this product (sharing the base name "{baseName.trim()}").
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-full border-dashed cursor-pointer"
+                onClick={() => onAddVariety?.(initial)}
+              >
+                <Plus className="h-4 w-4 mr-1" /> Add New Variety
+              </Button>
+            </div>
+
+            {/* List of varieties */}
+            <div className="overflow-x-auto border rounded-xl bg-secondary/5">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">Image</TableHead>
+                    <TableHead>Variety Name</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead>Stock</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(() => {
+                    const originalBaseName = (initial?.name ?? "").split(" - ")[0].trim();
+                    const siblingList = (products || []).filter(
+                      (p) => p.name.split(" - ")[0] === originalBaseName
+                    );
+                    
+                    if (siblingList.length === 0) {
+                      return (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-6 text-muted-foreground text-xs">
+                            No varieties found.
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+
+                    return siblingList.map((v) => {
+                      const isCurrent = v.id === initial.id;
+                      const vName = v.name.split(" - ")[1] || "Main (Default)";
+                      return (
+                        <TableRow key={v.id} className={isCurrent ? "bg-primary/5" : ""}>
+                          <TableCell>
+                            <img src={v.image} alt={vName} className="h-8 w-8 rounded object-cover bg-secondary" />
+                          </TableCell>
+                          <TableCell className="font-medium text-sm">
+                            <div className="flex items-center gap-2">
+                              <span>{vName}</span>
+                              {isCurrent && (
+                                <span className="text-[9px] text-primary bg-primary/10 rounded px-1.5 py-0.5 font-semibold">
+                                  Currently Editing
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm font-mono">
+                            {v.original_price && v.original_price > v.price ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-red-600 dark:text-red-400">{formatPrice(v.price)}</span>
+                                <span className="text-xs text-muted-foreground line-through">{formatPrice(v.original_price)}</span>
+                              </div>
+                            ) : (
+                              formatPrice(v.price)
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {v.stock} units
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={isCurrent}
+                                onClick={() => onEditProduct?.(v)}
+                                className="h-8 px-2 text-xs cursor-pointer"
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={async () => {
+                                  await onDeleteProduct?.(v.id);
+                                }}
+                                className="h-8 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                  })()}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+        )}
 
         {/* ── Actions ─────────────────────────────────────────────────────── */}
         <div className="flex justify-end gap-3 border-t pt-6">
@@ -2072,6 +2712,410 @@ function HeroAdmin() {
         </div>
         <Button type="submit" className="w-full mt-4">Save Changes</Button>
       </form>
+    </div>
+  );
+}
+
+function PromotionsAdmin() {
+  const { settings, updateSettings, isLoaded } = usePromoSettings();
+  const [text, setText] = useState("");
+  const [link, setLink] = useState("");
+  const [isActive, setIsActive] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  if (!isLoaded) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const items = settings.items || [];
+
+  const handleSavePromoSettings = async (updated: Partial<typeof settings>) => {
+    setSaving(true);
+    try {
+      await updateSettings(updated);
+      toast.success("Promotion settings updated successfully");
+    } catch (e) {
+      toast.error("Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddOrEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) {
+      toast.error("Promotion text is required");
+      return;
+    }
+
+    let updatedItems = [...items];
+    if (editingId) {
+      // Edit existing
+      updatedItems = updatedItems.map((item) =>
+        item.id === editingId ? { ...item, text: text.trim(), link: link.trim(), isActive } : item
+      );
+      toast.success("Promotion updated");
+    } else {
+      // Add new
+      const newItem = {
+        id: Math.random().toString(36).substring(2, 9),
+        text: text.trim(),
+        link: link.trim(),
+        isActive,
+      };
+      updatedItems.push(newItem);
+      toast.success("Promotion added");
+    }
+
+    await handleSavePromoSettings({ items: updatedItems });
+
+    // Reset form
+    setText("");
+    setLink("");
+    setIsActive(true);
+    setEditingId(null);
+  };
+
+  const handleStartEdit = (item: typeof items[0]) => {
+    setEditingId(item.id);
+    setText(item.text);
+    setLink(item.link || "");
+    setIsActive(item.isActive);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setText("");
+    setLink("");
+    setIsActive(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this promotion?")) return;
+    const updatedItems = items.filter((item) => item.id !== id);
+    await handleSavePromoSettings({ items: updatedItems });
+    if (editingId === id) {
+      handleCancelEdit();
+    }
+  };
+
+  const handleToggleActive = async (id: string) => {
+    const updatedItems = items.map((item) =>
+      item.id === id ? { ...item, isActive: !item.isActive } : item
+    );
+    await handleSavePromoSettings({ items: updatedItems });
+  };
+
+  const handleMove = async (index: number, direction: "up" | "down") => {
+    const newItems = [...items];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    
+    if (targetIndex < 0 || targetIndex >= newItems.length) return;
+
+    // Swap
+    const temp = newItems[index];
+    newItems[index] = newItems[targetIndex];
+    newItems[targetIndex] = temp;
+
+    await handleSavePromoSettings({ items: newItems });
+  };
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
+      {/* List and Config */}
+      <div className="space-y-8">
+        {/* Global Configuration */}
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Plus className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-medium">Promo Bar Options</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Configure the visibility, colors, and autoplay settings of the announcement bar.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div className="flex items-center justify-between p-4 border rounded-lg bg-secondary/10">
+              <div>
+                <Label className="font-semibold">Enable Announcement Bar</Label>
+                <p className="text-xs text-muted-foreground">Show/hide the bar globally on your site</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.enabled}
+                onChange={(e) => handleSavePromoSettings({ enabled: e.target.checked })}
+                className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg bg-secondary/10">
+              <div>
+                <Label className="font-semibold">Enable Autoplay</Label>
+                <p className="text-xs text-muted-foreground">Automatically rotate between messages</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.autoPlay}
+                onChange={(e) => handleSavePromoSettings({ autoPlay: e.target.checked })}
+                className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                disabled={items.filter(i => i.isActive).length <= 1}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="bgColor">Background Color</Label>
+              <div className="flex gap-2">
+                <input
+                  id="bgColor"
+                  type="color"
+                  value={settings.backgroundColor}
+                  onChange={(e) => handleSavePromoSettings({ backgroundColor: e.target.value })}
+                  className="h-10 w-12 border rounded cursor-pointer p-0.5"
+                />
+                <Input
+                  type="text"
+                  value={settings.backgroundColor}
+                  onChange={(e) => handleSavePromoSettings({ backgroundColor: e.target.value })}
+                  className="font-mono"
+                  placeholder="#111111"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Hex code or color picker value for the bar background.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="textColor">Text Color</Label>
+              <div className="flex gap-2">
+                <input
+                  id="textColor"
+                  type="color"
+                  value={settings.textColor}
+                  onChange={(e) => handleSavePromoSettings({ textColor: e.target.value })}
+                  className="h-10 w-12 border rounded cursor-pointer p-0.5"
+                />
+                <Input
+                  type="text"
+                  value={settings.textColor}
+                  onChange={(e) => handleSavePromoSettings({ textColor: e.target.value })}
+                  className="font-mono"
+                  placeholder="#FFFFFF"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Hex code or color picker value for the announcement text and icons.
+              </p>
+            </div>
+
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="interval">Rotation Interval (seconds)</Label>
+              <Input
+                id="interval"
+                type="number"
+                min="1"
+                value={settings.autoPlayInterval}
+                onChange={(e) => handleSavePromoSettings({ autoPlayInterval: parseInt(e.target.value) || 5 })}
+                className="max-w-[200px]"
+                disabled={!settings.autoPlay}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                How long each promotion displays before sliding to the next one.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Promotions List */}
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          <h3 className="text-lg font-medium mb-4">Promotions List</h3>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[80px]">Order</TableHead>
+                  <TableHead>Promotion Text</TableHead>
+                  <TableHead>Link</TableHead>
+                  <TableHead className="w-[100px] text-center">Status</TableHead>
+                  <TableHead className="w-[120px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground text-sm">
+                      No promotions created yet. Add one on the right!
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  items.map((item, idx) => (
+                    <TableRow key={item.id} className={editingId === item.id ? "bg-primary/5" : ""}>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleMove(idx, "up")}
+                            disabled={idx === 0}
+                            className="h-7 w-7 p-0 cursor-pointer"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleMove(idx, "down")}
+                            disabled={idx === items.length - 1}
+                            className="h-7 w-7 p-0 cursor-pointer"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm font-medium leading-relaxed block break-words max-w-[300px]">
+                          {item.text}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {item.link ? (
+                          <span className="text-xs font-mono bg-secondary px-2 py-1 rounded text-secondary-foreground truncate max-w-[150px] inline-block" title={item.link}>
+                            {item.link}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">None</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <button
+                          onClick={() => handleToggleActive(item.id)}
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer border transition-colors ${
+                            item.isActive
+                              ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/30"
+                              : "bg-muted text-muted-foreground border-transparent"
+                          }`}
+                        >
+                          {item.isActive ? "Active" : "Inactive"}
+                        </button>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleStartEdit(item)}
+                            className="h-8 w-8 p-0 hover:bg-secondary cursor-pointer"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(item.id)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      </div>
+
+      {/* Add / Edit Form Card */}
+      <div className="rounded-xl border bg-card p-6 shadow-sm h-fit">
+        <h3 className="text-lg font-medium mb-4">
+          {editingId ? "Edit Promotion" : "Create New Promotion"}
+        </h3>
+        <form onSubmit={handleAddOrEdit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="promoText">Promotion Text</Label>
+            <Textarea
+              id="promoText"
+              placeholder="e.g. Free shipping on orders above ₹1000!"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={3}
+              className="resize-none"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              The announcement message shown to visitors. Keep it concise.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="promoLink">Link URL / Path (Optional)</Label>
+            <Input
+              id="promoLink"
+              placeholder="e.g. /shop or https://external.com"
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Internal shop path (e.g., /shop) or full external URL. Clicking the bar navigates here.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 py-2">
+            <input
+              id="promoActive"
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+            />
+            <Label htmlFor="promoActive" className="cursor-pointer">
+              Set active immediately
+            </Label>
+          </div>
+
+          <div className="flex gap-2">
+            {editingId && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelEdit}
+                className="w-1/2 rounded-full cursor-pointer"
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="submit"
+              disabled={saving}
+              className={`rounded-full cursor-pointer ${editingId ? "w-1/2" : "w-full"}`}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : editingId ? (
+                <>
+                  <Check className="h-4 w-4 mr-1.5" /> Save Changes
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-1.5" /> Add Promotion
+                </>
+              )}
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

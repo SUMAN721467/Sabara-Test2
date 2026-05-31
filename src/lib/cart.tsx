@@ -27,6 +27,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const { user } = useAuth();
   const userRef = useRef<string | null>(null);
+  const [sessionExistsOnMount, setSessionExistsOnMount] = useState<boolean | null>(null);
+  const [hasSyncedOnLogin, setHasSyncedOnLogin] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSessionExistsOnMount(!!data.session);
+    });
+  }, []);
 
   // Helper: Sync cart to DB
   const syncCartToDb = async (cartLines: CartLine[], providerName?: string) => {
@@ -93,8 +101,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // 4. Handle initial sync / merge on login
   useEffect(() => {
     async function syncOnLogin() {
+      if (sessionExistsOnMount === null) return;
+
       if (user && user.id !== userRef.current) {
         userRef.current = user.id;
+        setHasSyncedOnLogin(false);
         try {
           const { data: sessionData } = await supabase.auth.getSession();
           const token = sessionData?.session?.access_token;
@@ -109,42 +120,56 @@ export function CartProvider({ children }: { children: ReactNode }) {
               const dbCart: CartLine[] = json.cart || [];
               const provider = sessionData?.session?.user?.app_metadata?.provider || null;
 
-              setLines((currentLines) => {
-                const mergedMap = new Map<string, number>();
-                currentLines.forEach((l) => mergedMap.set(l.id, l.qty));
-                dbCart.forEach((dbLine) => {
-                  const product = dbProducts.find((p) => p.id === dbLine.id);
-                  const maxStock = product?.stock !== undefined && product?.stock !== null ? Number(product.stock) : 10;
-                  const currentQty = mergedMap.get(dbLine.id) || 0;
-                  const newQty = Math.min(maxStock, currentQty + dbLine.qty);
-                  mergedMap.set(dbLine.id, newQty);
-                });
+              if (sessionExistsOnMount) {
+                // Session restored on page load: overwrite local cart with DB cart
+                setLines(dbCart);
+                setSessionExistsOnMount(false);
+                setHasSyncedOnLogin(true);
+              } else {
+                // Fresh login: merge guest cart with DB cart
+                setLines((currentLines) => {
+                  const mergedMap = new Map<string, number>();
+                  currentLines.forEach((l) => mergedMap.set(l.id, l.qty));
+                  dbCart.forEach((dbLine) => {
+                    const product = dbProducts.find((p) => p.id === dbLine.id);
+                    const maxStock = product?.stock !== undefined && product?.stock !== null ? Number(product.stock) : 10;
+                    const currentQty = mergedMap.get(dbLine.id) || 0;
+                    const newQty = Math.min(maxStock, currentQty + dbLine.qty);
+                    mergedMap.set(dbLine.id, newQty);
+                  });
 
-                const merged = Array.from(mergedMap.entries()).map(([id, qty]) => ({ id, qty }));
-                syncCartToDb(merged, provider);
-                return merged;
-              });
+                  const merged = Array.from(mergedMap.entries()).map(([id, qty]) => ({ id, qty }));
+                  syncCartToDb(merged, provider);
+                  return merged;
+                });
+                setHasSyncedOnLogin(true);
+              }
             }
           }
         } catch (e) {
           console.error("Cart sync on login error:", e);
         }
       } else if (!user) {
+        if (userRef.current !== null) {
+          // Clear cart on logout
+          setLines([]);
+        }
         userRef.current = null;
+        setHasSyncedOnLogin(false);
       }
     }
 
     if (hydrated && dbProducts.length > 0) {
       syncOnLogin();
     }
-  }, [user, hydrated, dbProducts]);
+  }, [user, hydrated, dbProducts, sessionExistsOnMount]);
 
   // 5. Watch lines change to sync to DB for logged in users
   useEffect(() => {
-    if (hydrated && user && dbProducts.length > 0) {
+    if (hydrated && user && dbProducts.length > 0 && hasSyncedOnLogin) {
       syncCartToDb(lines);
     }
-  }, [lines, hydrated, user, dbProducts]);
+  }, [lines, hydrated, user, dbProducts, hasSyncedOnLogin]);
 
   const value = useMemo<CartCtx>(() => {
     const detailed = lines

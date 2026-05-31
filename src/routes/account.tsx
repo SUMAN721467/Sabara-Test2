@@ -106,6 +106,20 @@ function AccountPage() {
               setStateName(p.address.state || "");
               setZipCode(p.address.zipCode || "");
             }
+
+            // Sync database avatar_url to auth user metadata if they differ
+            if (p.avatarUrl && p.avatarUrl !== user.user_metadata?.avatar_url) {
+              supabase.auth.updateUser({
+                data: { avatar_url: p.avatarUrl }
+              }).catch(err => console.error("Error syncing avatar to auth metadata:", err));
+            } else if (!p.avatarUrl && user.user_metadata?.avatar_url) {
+              // Database is missing the avatar url but auth metadata has it, sync to database!
+              supabase
+                .from("user_profiles")
+                .update({ avatar_url: user.user_metadata.avatar_url })
+                .eq("id", user.id)
+                .catch(err => console.error("Error syncing avatar to database:", err));
+            }
           }
         })
         .catch((err) => {
@@ -261,6 +275,19 @@ function AccountPage() {
         throw new Error(updateErr.message);
       }
 
+      // Also save to user_profiles table in the database
+      const { error: dbErr } = await supabase
+        .from("user_profiles")
+        .update({ avatar_url: publicUrl })
+        .eq("id", user.id);
+
+      if (dbErr) {
+        console.error("Failed to save avatar to database:", dbErr);
+      }
+
+      // Update local profile state
+      setProfile((prev: any) => prev ? { ...prev, avatarUrl: publicUrl } : { avatarUrl: publicUrl });
+
       toast.success("Profile picture updated successfully!");
     } catch (err: any) {
       console.error(err);
@@ -278,6 +305,20 @@ function AccountPage() {
         data: { avatar_url: null }
       });
       if (error) throw error;
+
+      // Also remove from user_profiles table in the database
+      const { error: dbErr } = await supabase
+        .from("user_profiles")
+        .update({ avatar_url: null })
+        .eq("id", user.id);
+
+      if (dbErr) {
+        console.error("Failed to remove avatar from database:", dbErr);
+      }
+
+      // Update local profile state
+      setProfile((prev: any) => prev ? { ...prev, avatarUrl: null } : null);
+
       toast.success("Profile picture removed.");
     } catch (err: any) {
       toast.error(err.message || "Failed to remove profile picture.");
@@ -308,6 +349,7 @@ function AccountPage() {
           fullName,
           age: age === "" ? "" : Number(age),
           phone,
+          avatarUrl: profile?.avatarUrl || user.user_metadata?.avatar_url || null,
           address: {
             street,
             city,
@@ -362,6 +404,7 @@ function AccountPage() {
           fullName,
           age: age === "" ? "" : Number(age),
           phone,
+          avatarUrl: profile?.avatarUrl || user.user_metadata?.avatar_url || null,
           address: {
             street,
             city,
